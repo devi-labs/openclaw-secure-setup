@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "main": "server.js",
   "type": "commonjs",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "@slack/bolt": "^4.0.0" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@octokit/rest": "^22.0.1",
+    "@slack/bolt": "^4.0.0"
+  }
 }
