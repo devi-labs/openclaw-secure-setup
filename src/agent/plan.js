@@ -81,6 +81,7 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultB
     '',
     'Guidance:',
     '- Allowed commands: git, npm, node only (no npx).',
+    '- Git identity (user.name, user.email) is ALREADY configured - do NOT add git config commands to your plan.',
     '- For SPEED, prefer minimal manual setup over scaffolding tools:',
     '  * Write package.json with node -e (just react, react-dom, vite as deps)',
     '  * npm install',
