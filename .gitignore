@@ -5,6 +5,9 @@ package-lock.json
 # Environment & Secrets
 .env
 .env.local
+.env.production
+deploy.sh
+deploy-*.sh
 *.pem
 *.key
 *.json

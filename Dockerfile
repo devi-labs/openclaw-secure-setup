@@ -1,9 +1,20 @@
 FROM node:20-slim
 
 # Install git for sandbox PR workflow
+# Update ca-certificates first, then install git and curl for better SSL/TLS support
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git bash ca-certificates \
+  && apt-get install -y --no-install-recommends \
+     git \
+     bash \
+     ca-certificates \
+     curl \
+  && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# Configure git to use more robust SSL settings
+RUN git config --global http.sslVerify true \
+  && git config --global http.postBuffer 524288000 \
+  && git config --global http.version HTTP/1.1
 
 RUN useradd -m -u 10001 appuser
 WORKDIR /app
