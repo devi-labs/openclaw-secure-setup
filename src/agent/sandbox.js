@@ -54,13 +54,50 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     // Configure git identity (required for any commits)
     const gitEmail = process.env.GIT_AUTHOR_EMAIL || 'openclaw@bot.local';
     const gitName = process.env.GIT_AUTHOR_NAME || 'OpenClaw Bot';
-    await runCmd('git', ['config', 'user.email', gitEmail], { cwd: jobDir, env: process.env });
-    await runCmd('git', ['config', 'user.name', gitName], { cwd: jobDir, env: process.env });
+    
+    await sayProgress?.(`🔧 [${jobId}] Configuring git identity (${gitName} <${gitEmail}>)...`);
+    
+    r = await runCmd('git', ['config', 'user.email', gitEmail], { cwd: jobDir, env: process.env });
+    if (r.code !== 0) {
+      await recordThreadError(threadKey, {
+        lastError: 'git config user.email failed',
+        lastErrorJobId: jobId,
+        lastErrorContext: 'git:config:email',
+        lastErrorLogs: clampString(safeLogChunk(r.err || r.out, 6000), 6000),
+      });
+      throw new Error(`git config user.email failed:\n${safeLogChunk(r.err || r.out)}`);
+    }
+    
+    r = await runCmd('git', ['config', 'user.name', gitName], { cwd: jobDir, env: process.env });
+    if (r.code !== 0) {
+      await recordThreadError(threadKey, {
+        lastError: 'git config user.name failed',
+        lastErrorJobId: jobId,
+        lastErrorContext: 'git:config:name',
+        lastErrorLogs: clampString(safeLogChunk(r.err || r.out, 6000), 6000),
+      });
+      throw new Error(`git config user.name failed:\n${safeLogChunk(r.err || r.out)}`);
+    }
+    
+    // Verify git config was set
+    r = await runCmd('git', ['config', '--get', 'user.email'], { cwd: jobDir, env: process.env });
+    if (r.code !== 0 || r.out.trim() !== gitEmail) {
+      await sayProgress?.(`⚠️ [${jobId}] Warning: git config verification failed (expected: ${gitEmail}, got: ${r.out.trim()})`);
+    }
+
+    // Prepare environment with git identity for all commands
+    const execEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: gitName,
+      GIT_AUTHOR_EMAIL: gitEmail,
+      GIT_COMMITTER_NAME: gitName,
+      GIT_COMMITTER_EMAIL: gitEmail,
+    };
 
     // Branch
     const branch = `openclaw/sandbox-${Date.now().toString(36)}-${jobId}`;
     await sayProgress?.(`🌿 [${jobId}] Creating branch ${branch}...`);
-    r = await runCmd('git', ['checkout', '-b', branch], { cwd: jobDir, env: process.env });
+    r = await runCmd('git', ['checkout', '-b', branch], { cwd: jobDir, env: execEnv });
     if (r.code !== 0) {
       await recordThreadError(threadKey, {
         lastError: 'git checkout failed',
@@ -103,7 +140,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
       }
 
       await sayProgress?.(`▶️ [${jobId}] ${cmd} ${(args || []).join(' ')}`);
-      const res = await runCmd(cmd, args, { cwd: jobDir, env: process.env });
+      const res = await runCmd(cmd, args, { cwd: jobDir, env: execEnv });
 
       if (res.code !== 0) {
         await recordThreadError(threadKey, {
@@ -133,7 +170,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
           });
           throw new Error(`Blocked verify command: ${cmd} ${args.join(' ')}`);
         }
-        const res = await runCmd(cmd, args, { cwd: jobDir, env: process.env });
+        const res = await runCmd(cmd, args, { cwd: jobDir, env: execEnv });
         if (res.code !== 0) {
           plan.verify.failed = true;
           plan.verify.logs = safeLogChunk(res.err || res.out, 6000);
@@ -150,7 +187,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     }
 
     // Ensure changes exist
-    r = await runCmd('git', ['status', '--porcelain'], { cwd: jobDir, env: process.env });
+    r = await runCmd('git', ['status', '--porcelain'], { cwd: jobDir, env: execEnv });
     if (!r.out.trim()) {
       await recordThreadError(threadKey, {
         lastError: 'No changes produced in sandbox',
@@ -163,13 +200,13 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
 
     // Commit
     await sayProgress?.(`📦 [${jobId}] Committing...`);
-    await runCmd('git', ['add', '-A'], { cwd: jobDir, env: process.env });
+    await runCmd('git', ['add', '-A'], { cwd: jobDir, env: execEnv });
 
     const commitMsg =
       (plan.commitMessage && String(plan.commitMessage).slice(0, 120)) ||
       `openclaw: ${task}`.slice(0, 120);
 
-    r = await runCmd('git', ['commit', '-m', commitMsg], { cwd: jobDir, env: process.env });
+    r = await runCmd('git', ['commit', '-m', commitMsg], { cwd: jobDir, env: execEnv });
     if (r.code !== 0) {
       await recordThreadError(threadKey, {
         lastError: 'git commit failed',
@@ -182,7 +219,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
 
     // Push
     await sayProgress?.(`⬆️ [${jobId}] Pushing branch...`);
-    r = await runCmd('git', ['push', 'origin', branch], { cwd: jobDir, env: process.env });
+    r = await runCmd('git', ['push', 'origin', branch], { cwd: jobDir, env: execEnv });
     if (r.code !== 0) {
       await recordThreadError(threadKey, {
         lastError: 'git push failed',
