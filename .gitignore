@@ -1,1 +1,44 @@
+# Dependencies
 node_modules/
+package-lock.json
+
+# Environment & Secrets
+.env
+.env.local
+*.pem
+*.key
+*.json
+!package.json
+!package-lock.json
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build outputs
+dist/
+build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Sandbox work directories
+/tmp/openclaw-jobs/
