@@ -22,7 +22,7 @@ function buildPRBodyFromPlan({ task, plan }) {
   return body.trim() + '\n';
 }
 
-async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, threadMemory, repoMemory, repoContext, threadKey, recordThreadError, owner, repo, task }) {
+async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, threadMemory, repoMemory, repoContext, summaryMemory, threadKey, recordThreadError, owner, repo, task }) {
   if (!octokit) throw new Error('GITHUB_TOKEN missing');
   if (!config.github.token) throw new Error('GITHUB_TOKEN missing in container');
   if (!anthropic) throw new Error('ANTHROPIC_API_KEY missing');
@@ -120,10 +120,16 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
       threadMemory,
       repoMemory,
       repoContext,
+      summaryMemory,
       threadKey,
       jobId,
       recordThreadError,
     });
+
+    // Handle clarification response
+    if (plan.needsClarification) {
+      return { needsClarification: true, plan };
+    }
 
     // Execute plan steps
     for (const step of plan.steps) {

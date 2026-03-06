@@ -42,11 +42,12 @@ function parsePlanJson(extracted) {
   return null;
 }
 
-async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultBranch, threadMemory, repoMemory, repoContext, threadKey, jobId, recordThreadError }) {
+async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultBranch, threadMemory, repoMemory, repoContext, summaryMemory, threadKey, jobId, recordThreadError }) {
   if (!anthropic) throw new Error('ANTHROPIC_API_KEY missing');
 
   const system =
     'You are OpenClaw, a senior software engineer controlling a sandbox runner. ' +
+    'You are thoughtful, precise, and avoid guessing. ' +
     'Return STRICT JSON only. No markdown. No commentary. ' +
     'Optimize for FAST PR creation; build/tests are secondary.';
 
@@ -65,11 +66,41 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultB
       ? `\n\nPrevious run in this thread failed: "${String(threadMemory.lastError).slice(0, 200)}". Avoid repeating (e.g. output raw JSON only, no markdown fences).`
       : '';
 
+  const summaryBlock = summaryMemory?.entries?.length
+    ? '\nRecent task history (use for context):\n' +
+      summaryMemory.entries
+        .slice(-5)
+        .map((e) => `- [${e.at}] ${e.repo}: ${e.task} → ${e.result}`)
+        .join('\n')
+    : '';
+
   const prompt = [
     'Create an execution plan to implement the task in a fresh cloned repo checkout.',
     '',
-    'Return JSON ONLY, shape:',
+    'BEFORE planning, you MUST internally:',
+    '1. Restate the user request in your own words',
+    '2. Identify any assumptions you are making',
+    '3. Identify missing information that could change the plan',
+    '4. Prefer minimal changes over large rewrites',
+    '5. Never use tools or commands that are not in the allowed list',
+    '',
+    'ONLY return a clarification response if the task is truly incomprehensible or contradictory.',
+    'If you can make a reasonable interpretation, proceed with the plan — do NOT ask unnecessary questions.',
+    '',
+    'Return JSON ONLY in ONE of these two shapes:',
+    '',
+    'Shape A — ONLY if the task truly cannot be understood (max 3 questions):',
     '{',
+    '  "needsClarification": true,',
+    '  "restatement": "what I think you want...",',
+    '  "questions": ["question1", "question2"]',
+    '}',
+    '',
+    'Shape B — Execution plan (preferred, use this almost always):',
+    '{',
+    '  "needsClarification": false,',
+    '  "restatement": "what I am going to do...",',
+    '  "assumptions": ["assumption1"],',
     '  "prTitle": string,',
     '  "prBody": string,',
     '  "commitMessage": string,',
@@ -93,6 +124,7 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultB
     '- Keep prBody and summaryBullets brief (1-2 short sentences) so the full plan fits in one response.',
     repoContextBlock,
     lastErrorHint,
+    summaryBlock,
     '',
     'Thread memory (may be empty):',
     JSON.stringify(threadMemory || {}, null, 2).slice(0, 5000),
@@ -171,4 +203,4 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, defaultB
   return json;
 }
 
-module.exports = { claudeSandboxPlan };
+module.exports = { claudeSandboxPlan, extractJsonFromText, parsePlanJson };

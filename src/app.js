@@ -425,6 +425,9 @@ async function startSlackApp({ config, anthropic, octokit, storage, brain }) {
         }
 
         await sayProgress(`🧠 Starting sandbox dev job for ${owner}/${repo}...`);
+
+        const summaryMemory = await brain.loadSummary();
+
         const result = await sandboxFastPR({
           octokit,
           anthropic,
@@ -434,12 +437,30 @@ async function startSlackApp({ config, anthropic, octokit, storage, brain }) {
           threadMemory: threadState || {},
           repoMemory: repoMem || {},
           repoContext,
+          summaryMemory,
           threadKey,
           recordThreadError: brain.recordThreadError,
           owner,
           repo,
           task: taskBlock.task,
         });
+
+        // Handle clarification response
+        if (result.needsClarification) {
+          const questions = (result.plan.questions || []).slice(0, 3);
+          const msg = [
+            `🤔 I want to make sure I get this right.`,
+            '',
+            `*My understanding:* ${result.plan.restatement || '(unclear)'}`,
+            '',
+            `*Before I proceed, I need to know:*`,
+            ...questions.map((q, i) => `${i + 1}. ${q}`),
+            '',
+            `Reply with answers and I'll build the PR.`,
+          ].join('\n');
+          await say({ text: msg, ...reply });
+          return;
+        }
 
         // Save brain updates
         await brain.saveThread(threadKey, {
@@ -456,6 +477,14 @@ async function startSlackApp({ config, anthropic, octokit, storage, brain }) {
           lastPrUrl: result.prUrl,
           lastBranch: result.branch,
           preferences: { fastPRs: true, testsSecondary: true },
+        });
+
+        // Save task summary for cross-conversation memory
+        await brain.saveSummary({
+          repo: `${owner}/${repo}`,
+          task: taskBlock.task,
+          result: `PR created: ${result.prUrl}`,
+          branch: result.branch,
         });
 
         await say({

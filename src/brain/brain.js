@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -13,6 +16,30 @@ function brainObjectPath(prefix, kind, key) {
   return `${prefix}/${kind}/${safe}.json`;
 }
 
+// Local filesystem storage (fast reads/writes on VM)
+const LOCAL_BRAIN_DIR = process.env.OPENCLAW_BRAIN_DIR || '/tmp/openclaw-brain';
+
+function localPath(objectName) {
+  return path.join(LOCAL_BRAIN_DIR, objectName);
+}
+
+function localReadJson(objectName) {
+  try {
+    const fp = localPath(objectName);
+    if (!fs.existsSync(fp)) return null;
+    return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function localWriteJson(objectName, obj) {
+  const fp = localPath(objectName);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify(obj, null, 2), 'utf8');
+}
+
+// GCS storage (backup)
 async function gcsReadJson(storage, bucketName, objectName) {
   try {
     const [buf] = await storage.bucket(bucketName).file(objectName).download();
@@ -65,46 +92,70 @@ function sanitizePlanForStorage(plan) {
 }
 
 function createBrain({ storage, bucket, prefix }) {
-  const enabled = !!storage && !!bucket;
+  const gcsEnabled = !!storage && !!bucket;
+  const enabled = true; // always enabled — local storage is always available
+
+  // Ensure local brain dir exists
+  fs.mkdirSync(LOCAL_BRAIN_DIR, { recursive: true });
+
+  // Async GCS backup (fire-and-forget, never blocks)
+  function backupToGcs(objPath, data) {
+    if (!gcsEnabled) return;
+    gcsWriteJson(storage, bucket, objPath, data).catch((e) => {
+      console.error(`GCS backup failed for ${objPath}:`, e?.message || e);
+    });
+  }
+
+  // Read: local first, fall back to GCS if local miss
+  async function readJson(objPath) {
+    const local = localReadJson(objPath);
+    if (local) return local;
+    if (!gcsEnabled) return null;
+    const remote = await gcsReadJson(storage, bucket, objPath);
+    if (remote) localWriteJson(objPath, remote); // cache locally
+    return remote;
+  }
+
+  // Write: local (sync, fast) + async GCS backup
+  async function writeJson(objPath, data) {
+    localWriteJson(objPath, data);
+    backupToGcs(objPath, data);
+  }
 
   async function loadThread(threadKey) {
-    if (!enabled) return null;
     const objPath = brainObjectPath(prefix, 'threads', threadKey);
-    return await gcsReadJson(storage, bucket, objPath);
+    return await readJson(objPath);
   }
 
   async function saveThread(threadKey, patch) {
-    if (!enabled) return;
     const objPath = brainObjectPath(prefix, 'threads', threadKey);
-    const existing = (await gcsReadJson(storage, bucket, objPath)) || {};
+    const existing = (await readJson(objPath)) || {};
     const merged = {
       ...existing,
       ...patch,
       updatedAt: nowIso(),
       version: 1,
     };
-    await gcsWriteJson(storage, bucket, objPath, merged);
+    await writeJson(objPath, merged);
   }
 
   async function loadRepo(owner, repo) {
-    if (!enabled) return null;
     const key = repoKey(owner, repo);
     const objPath = brainObjectPath(prefix, 'repos', key);
-    return await gcsReadJson(storage, bucket, objPath);
+    return await readJson(objPath);
   }
 
   async function saveRepo(owner, repo, patch) {
-    if (!enabled) return;
     const key = repoKey(owner, repo);
     const objPath = brainObjectPath(prefix, 'repos', key);
-    const existing = (await gcsReadJson(storage, bucket, objPath)) || {};
+    const existing = (await readJson(objPath)) || {};
     const merged = {
       ...existing,
       ...patch,
       updatedAt: nowIso(),
       version: 1,
     };
-    await gcsWriteJson(storage, bucket, objPath, merged);
+    await writeJson(objPath, merged);
   }
 
   async function recordThreadError(threadKey, patch) {
@@ -114,19 +165,44 @@ function createBrain({ storage, bucket, prefix }) {
         ...patch,
       });
     } catch (e) {
-      // If brain is off, silently ignore.
+      // silently ignore
     }
+  }
+
+  async function loadSummary() {
+    const objPath = brainObjectPath(prefix, 'global', 'summary');
+    return await readJson(objPath);
+  }
+
+  async function saveSummary(patch) {
+    const objPath = brainObjectPath(prefix, 'global', 'summary');
+    const existing = (await readJson(objPath)) || { entries: [] };
+    const entry = {
+      ...patch,
+      at: nowIso(),
+    };
+    existing.entries = [...(existing.entries || []).slice(-49), entry];
+    existing.updatedAt = nowIso();
+    await writeJson(objPath, existing);
+  }
+
+  function threadKeyFromPhone(phoneNumber) {
+    const safe = String(phoneNumber).replace(/[^0-9+]/g, '');
+    return `sms:${safe}`;
   }
 
   return {
     enabled,
     threadKeyFromEvent,
+    threadKeyFromPhone,
     loadThread,
     saveThread,
     loadRepo,
     saveRepo,
     recordThreadError,
     sanitizePlanForStorage,
+    loadSummary,
+    saveSummary,
   };
 }
 

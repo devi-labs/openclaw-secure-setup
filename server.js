@@ -4,12 +4,13 @@ const { config } = require('./src/config');
 const { startHealthServer } = require('./src/http');
 const { loadGcpCredentialsMaybe, createStorageClient } = require('./src/clients/gcp');
 const { createAnthropicClient } = require('./src/clients/anthropic');
+const { createOpenAIClient } = require('./src/clients/openai');
 const { createOctokit } = require('./src/clients/github');
 const { createBrain } = require('./src/brain/brain');
-const { startSlackApp } = require('./src/app');
+const { createGmailClient } = require('./src/clients/gmail');
 
 (async () => {
-  console.log('Starting OpenClaw...');
+  console.log(`Starting OpenClaw (platform: ${config.messagingPlatform})...`);
   const startTime = Date.now();
   
   // Load GCP credentials if needed
@@ -17,6 +18,7 @@ const { startSlackApp } = require('./src/app');
 
   // Create clients
   const anthropic = createAnthropicClient(config.anthropic.apiKey);
+  const openai = createOpenAIClient(config.openai.apiKey);
   const octokit = createOctokit(config.github.token);
   const storage = createStorageClient(config.gcp.projectId);
 
@@ -27,11 +29,21 @@ const { startSlackApp } = require('./src/app');
     prefix: config.gcp.brainPrefix,
   });
 
-  // Start health server
-  startHealthServer(config.port);
+  // Create Gmail client
+  const gmail = createGmailClient(config.gmail);
 
-  // Start Slack app
-  await startSlackApp({ config, anthropic, octokit, storage, brain });
-  
+  const deps = { config, anthropic, openai, octokit, storage, brain, gmail };
+
+  if (config.messagingPlatform === 'sms') {
+    // SMS/WhatsApp mode — Express server handles both health + webhooks
+    const { startSmsApp } = require('./src/sms');
+    await startSmsApp(deps);
+  } else {
+    // Slack mode (default)
+    startHealthServer(config.port);
+    const { startSlackApp } = require('./src/app');
+    await startSlackApp(deps);
+  }
+
   console.log(`OpenClaw started in ${Date.now() - startTime}ms`);
 })();

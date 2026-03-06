@@ -29,6 +29,11 @@ COPY src ./src
 ENV OPENCLAW_WORKDIR=/tmp/openclaw-jobs
 RUN mkdir -p /tmp/openclaw-jobs && chown -R 10001:10001 /tmp/openclaw-jobs
 
+# Local brain storage (fast reads, backed up to GCS)
+ENV OPENCLAW_BRAIN_DIR=/data/openclaw-brain
+RUN mkdir -p /data/openclaw-brain && chown -R 10001:10001 /data/openclaw-brain
+VOLUME ["/data/openclaw-brain"]
+
 USER 10001
 ENV NODE_ENV=production
 ENV CI=1
