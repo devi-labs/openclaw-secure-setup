@@ -1,4 +1,4 @@
-# OpenClaw
+# OpenClaw Secure Setup
 
 **AI-powered development agent that creates PRs from Slack or WhatsApp**
 
