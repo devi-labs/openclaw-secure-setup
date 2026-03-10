@@ -18,7 +18,7 @@ function httpsRepoUrl(owner, repo, token) {
 
 function commandAllowed(cmd, args) {
   const deny = new Set([
-    'rm', 'rmdir', 'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff',
+    'rmdir', 'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff',
     'passwd', 'useradd', 'userdel', 'groupadd', 'chown', 'chmod',
     'mount', 'umount', 'fdisk', 'parted',
     'iptables', 'ip6tables', 'nft',
