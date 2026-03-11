@@ -7,7 +7,8 @@ package-lock.json
 .env.local
 .env.production
 deploy.sh
-deploy-*.sh
+!deploy-gce.sh
+!setup.sh
 *.pem
 *.key
 *.json
