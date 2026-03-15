@@ -44,19 +44,38 @@ function commandAllowed(cmd, args) {
 }
 
 function runCmd(cmd, args, opts = {}) {
+  const { timeout = 120_000, ...spawnOpts } = opts;
+
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, {
-      ...opts,
+      ...spawnOpts,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let out = '';
     let err = '';
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      p.kill('SIGKILL');
+    }, timeout);
+
     p.stdout.on('data', (d) => (out += d.toString('utf8')));
     p.stderr.on('data', (d) => (err += d.toString('utf8')));
 
-    p.on('error', reject);
-    p.on('close', (code) => resolve({ code, out, err }));
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      if (killed) {
+        resolve({ code: 1, out, err: err + `\n(killed: timed out after ${timeout / 1000}s)` });
+      } else {
+        resolve({ code, out, err });
+      }
+    });
   });
 }
 

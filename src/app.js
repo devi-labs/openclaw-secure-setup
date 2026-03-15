@@ -35,6 +35,7 @@ function helpText() {
     '  - `brain show`',
     '  - `brain reset`',
     '  - `brain last error`',
+    '• Calendar: `cal`, `cal list <date>`, `cal list week`, `cal get <id>`, `cal create "Title" <date> <time> <duration> [attendees]`, `cal update <id> field=value`, `cal delete <id>`',
     '• GCP (beta): `gcp status`, `gcs ls`, `gcs cat gs://bucket/path`, `gcs put gs://bucket/path ...`, `cloudrun ls`, `cloudrun deploy service:NAME image:... env:K=V,...`',
     '',
     '_Notes:_',
@@ -45,7 +46,7 @@ function helpText() {
   ].join('\n');
 }
 
-async function startSlackApp({ config, anthropic, octokit, storage, brain }) {
+async function startSlackApp({ config, anthropic, octokit, storage, brain, calendar }) {
   const app = new App({
     token: config.slack.botToken,
     appToken: config.slack.appToken,
@@ -229,6 +230,109 @@ async function startSlackApp({ config, anthropic, octokit, storage, brain }) {
       });
       await say({ text: '✅ Cleared thread memory.', ...reply });
       return;
+    }
+
+    // -------------------- Calendar commands --------------------
+    if (calendar && lower.startsWith('cal')) {
+      try {
+        const calCmd = lower.replace(/^cal\s*/, '').trim();
+        const calCmdRaw = cleaned.replace(/^cal\s*/i, '').trim();
+
+        if (calCmd === '' || calCmd === 'list' || calCmd === 'today') {
+          const events = await calendar.listEvents();
+          if (!events.length) {
+            await say({ text: '📅 No events today.', ...reply });
+            return;
+          }
+          await say({ text: `📅 Today's events:\n\n${events.map(e => e.formatted).join('\n\n')}`, ...reply });
+          return;
+        }
+
+        if (calCmd.startsWith('list ')) {
+          const arg = calCmd.replace(/^list\s*/, '').trim();
+          let timeMin, timeMax;
+          if (arg === 'week') {
+            const now = new Date();
+            timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+            timeMax = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString();
+          } else {
+            const dateStr = calendar.resolveDate(arg);
+            timeMin = new Date(`${dateStr}T00:00:00`).toISOString();
+            timeMax = new Date(`${dateStr}T23:59:59`).toISOString();
+          }
+          const events = await calendar.listEvents({ timeMin, timeMax });
+          if (!events.length) {
+            await say({ text: `📅 No events for ${arg}.`, ...reply });
+            return;
+          }
+          await say({ text: `📅 Events (${arg}):\n\n${events.map(e => e.formatted).join('\n\n')}`, ...reply });
+          return;
+        }
+
+        if (calCmd.startsWith('get ')) {
+          const eventId = calCmd.replace(/^get\s*/, '').trim();
+          const ev = await calendar.getEvent(eventId);
+          await say({ text: `📅 ${ev.formatted}\n${ev.htmlLink || ''}`, ...reply });
+          return;
+        }
+
+        if (calCmd.startsWith('create ')) {
+          const createMatch = calCmdRaw.match(/^create\s+[""\u201c\u201e\u00ab]([^""\u201d\u201f\u00bb]+)[""\u201d\u201f\u00bb]\s+(\S+)\s+(\d{1,2}:\d{2})\s+(\S+)(.*)$/is);
+          if (!createMatch) {
+            await say({ text: 'Usage: `cal create "Title" <date> <time> <duration> [attendees] [location:"place"]`', ...reply });
+            return;
+          }
+          const [, title, date, time, duration, rest] = createMatch;
+          const locMatch = (rest || '').match(/location\s*:\s*[""\u201c]([^""\u201d]+)[""\u201d]/i);
+          const location = locMatch ? locMatch[1] : '';
+          const attendeePart = (rest || '').replace(/location\s*:\s*[""\u201c][^""\u201d]*[""\u201d]/i, '').trim();
+          const attendees = attendeePart ? attendeePart.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+          const result = await calendar.createEvent({ summary: title, date, time, duration, attendees, location });
+          await say({ text: `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`, ...reply });
+          return;
+        }
+
+        if (calCmd.startsWith('update ')) {
+          const parts = calCmdRaw.replace(/^update\s*/i, '').trim().split(/\s+/);
+          const eventId = parts[0];
+          if (!eventId || parts.length < 2) {
+            await say({ text: 'Usage: `cal update <eventId> title="New Title" time=14:00 date=2026-03-15 duration=1h`', ...reply });
+            return;
+          }
+          const updates = {};
+          const kvStr = parts.slice(1).join(' ');
+          const kvMatches = kvStr.matchAll(/(\w+)\s*=\s*[""\u201c]([^""\u201d]+)[""\u201d]|(\w+)\s*=\s*(\S+)/g);
+          for (const m of kvMatches) {
+            const key = m[1] || m[3];
+            const val = m[2] || m[4];
+            if (key === 'title') updates.summary = val;
+            else if (key === 'attendees') updates.attendees = val.split(',').map(s => s.trim());
+            else updates[key] = val;
+          }
+          const result = await calendar.updateEvent(eventId, updates);
+          await say({ text: `✅ Event updated: ${result.summary}\n${result.htmlLink || ''}`, ...reply });
+          return;
+        }
+
+        if (calCmd.startsWith('delete ')) {
+          const eventId = calCmd.replace(/^delete\s*/, '').trim();
+          await calendar.deleteEvent(eventId);
+          await say({ text: '✅ Event deleted.', ...reply });
+          return;
+        }
+
+        await say({
+          text: 'Calendar commands:\n• `cal` / `cal list` / `cal list <date>` / `cal list week`\n• `cal get <id>`\n• `cal create "Title" <date> <time> <duration> [attendees]`\n• `cal update <id> field=value`\n• `cal delete <id>`',
+          ...reply,
+        });
+        return;
+      } catch (e) {
+        console.error('Calendar error:', e?.message || e);
+        await brain.recordThreadError(threadKey, { lastError: `Calendar error: ${e?.message || 'unknown'}`, lastErrorContext: 'calendar', lastErrorLogs: null });
+        await say({ text: `Calendar error: ${e?.message || 'unknown'}`, ...reply });
+        return;
+      }
     }
 
     // -------------------- GCS commands --------------------

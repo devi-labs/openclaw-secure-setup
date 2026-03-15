@@ -14,6 +14,10 @@ const config = {
     allowedNumber: process.env.TWILIO_ALLOWED_NUMBER || '',
     useWhatsApp: process.env.TWILIO_USE_WHATSAPP === '1',
   },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    allowedUserIds: process.env.TELEGRAM_ALLOWED_USER_IDS || '',
+  },
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY,
     model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-6',

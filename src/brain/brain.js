@@ -191,6 +191,10 @@ function createBrain({ storage, bucket, prefix }) {
     return `sms:${safe}`;
   }
 
+  function threadKeyFromTelegram(userId) {
+    return `tg:${String(userId).replace(/[^0-9]/g, '')}`;
+  }
+
   async function listRepos() {
     const reposDir = path.join(LOCAL_BRAIN_DIR, prefix, 'repos');
     try {
@@ -209,6 +213,7 @@ function createBrain({ storage, bucket, prefix }) {
     enabled,
     threadKeyFromEvent,
     threadKeyFromPhone,
+    threadKeyFromTelegram,
     loadThread,
     saveThread,
     loadRepo,

@@ -8,6 +8,7 @@ const { createOpenAIClient } = require('./src/clients/openai');
 const { createOctokit } = require('./src/clients/github');
 const { createBrain } = require('./src/brain/brain');
 const { createGmailClient } = require('./src/clients/gmail');
+const { createCalendarClient } = require('./src/clients/calendar');
 const { indexRepos } = require('./src/repo-index');
 
 (async () => {
@@ -33,12 +34,19 @@ const { indexRepos } = require('./src/repo-index');
   // Create Gmail client
   const gmail = createGmailClient(config.gmail);
 
-  const deps = { config, anthropic, openai, octokit, storage, brain, gmail };
+  // Create Calendar client (reuses Gmail OAuth2 creds)
+  const calendar = createCalendarClient(config.gmail);
+
+  const deps = { config, anthropic, openai, octokit, storage, brain, gmail, calendar };
 
   if (config.messagingPlatform === 'sms') {
     // SMS/WhatsApp mode — Express server handles both health + webhooks
     const { startSmsApp } = require('./src/sms');
     await startSmsApp(deps);
+  } else if (config.messagingPlatform === 'telegram') {
+    // Telegram mode — Express server with /telegram webhook
+    const { startTelegramApp } = require('./src/telegram');
+    await startTelegramApp(deps);
   } else {
     // Slack mode (default)
     startHealthServer(config.port);

@@ -223,4 +223,65 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, constrai
   return json;
 }
 
-module.exports = { claudeSandboxPlan, extractJsonFromText, parsePlanJson };
+async function claudeHealStep({ anthropic, model, failedStep, errorOutput, remainingSteps, repoFacts, task }) {
+  const system =
+    'You are OpenClaw\'s self-healing engine. A sandbox command failed during PR creation. ' +
+    'Diagnose the error and return corrective steps so execution can continue. ' +
+    'Return STRICT JSON only. No markdown. No commentary.';
+
+  const prompt = [
+    'A command failed during plan execution. Diagnose and fix it.',
+    '',
+    `Task being implemented: ${task}`,
+    '',
+    `Failed command: ${failedStep.cmd} ${(failedStep.args || []).join(' ')}`,
+    '',
+    `Error output:`,
+    (errorOutput || '(no output)').slice(0, 4000),
+    '',
+    `Remaining steps after the failed one:`,
+    JSON.stringify(remainingSteps.slice(0, 10), null, 2),
+    '',
+    repoFacts ? `Repo facts: ${JSON.stringify(repoFacts)}` : '',
+    '',
+    'Common fixes:',
+    '- Missing directory → mkdir -p',
+    '- Missing dependency → npm install <pkg>',
+    '- node -e syntax error → rewrite the script with corrected syntax',
+    '- File not found → create it or fix the path',
+    '- Permission error → check file path is relative to repo root',
+    '',
+    'Rules:',
+    '- Do NOT use bash -c / sh -c / shell redirections (we use spawn, not shell)',
+    '- Blocked commands: rm, sudo, curl, wget, ssh, docker, kill, shutdown, systemctl',
+    '- Use node -e "require(\'fs\').writeFileSync(...)" to create/edit files',
+    '- Keep fix steps minimal (max 5 steps)',
+    '',
+    'Return JSON:',
+    '{',
+    '  "diagnosis": "brief explanation of what went wrong",',
+    '  "fixSteps": [{ "cmd": string, "args": string[] }],',
+    '  "retryOriginal": true/false  // whether to re-run the failed step after fixes',
+    '}',
+  ].join('\n');
+
+  const resp = await anthropic.messages.create({
+    model,
+    max_tokens: 2048,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const raw = resp.content?.find((c) => c.type === 'text')?.text?.trim() || '';
+  const extracted = extractJsonFromText(raw);
+  const json = safeJsonParse(extracted);
+
+  if (!json || !Array.isArray(json.fixSteps)) {
+    return null; // couldn't parse a fix — caller will throw the original error
+  }
+
+  json.fixSteps = json.fixSteps.slice(0, 5);
+  return json;
+}
+
+module.exports = { claudeSandboxPlan, claudeHealStep, extractJsonFromText, parsePlanJson };

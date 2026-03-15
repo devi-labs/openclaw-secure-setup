@@ -8,7 +8,6 @@ const {
   parseOwnerRepo,
   parseGitHubRepoUrl,
   parseTaskBlock,
-  parseKeyVals,
 } = require('./util/parse');
 
 const { sandboxFastPR } = require('./agent/sandbox');
@@ -20,16 +19,6 @@ function ts() {
 }
 function log(...args) { console.log(`[${ts()}]`, ...args); }
 function logError(...args) { console.error(`[${ts()}]`, ...args); }
-
-function normalizePhone(raw) {
-  return String(raw || '').replace(/[^0-9+]/g, '');
-}
-
-function phonesMatch(a, b) {
-  const na = normalizePhone(a).replace(/^\+?1/, '');
-  const nb = normalizePhone(b).replace(/^\+?1/, '');
-  return na === nb && na.length >= 10;
-}
 
 function helpText() {
   return [
@@ -55,92 +44,72 @@ function helpText() {
   ].join('\n');
 }
 
-async function startSmsApp({ config, anthropic, openai, octokit, storage, brain, gmail, calendar }) {
+async function startTelegramApp({ config, anthropic, openai, octokit, storage, brain, gmail, calendar }) {
   const app = express();
-  app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
 
   app.get('/healthz', (_, res) => res.status(200).send('ok'));
 
-  const twilioClient = require('./clients/twilio').createTwilioClient(
-    config.twilio.accountSid,
-    config.twilio.authToken,
-  );
+  const { createTelegramClient } = require('./clients/telegram');
+  const tg = createTelegramClient(config.telegram.botToken);
 
-  if (!twilioClient) {
-    throw new Error('Twilio credentials missing (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)');
+  if (!tg) {
+    throw new Error('Telegram bot token missing (TELEGRAM_BOT_TOKEN)');
   }
 
-  const fromNumber = config.twilio.useWhatsApp
-    ? `whatsapp:${config.twilio.phoneNumber}`
-    : config.twilio.phoneNumber;
+  const allowedUserIds = config.telegram.allowedUserIds
+    .split(',').map(s => s.trim()).filter(Boolean);
 
-  async function sendReply(to, text) {
-    // Ensure proper WhatsApp format for the 'to' number
-    let toNumber = to;
-    if (config.twilio.useWhatsApp) {
-      const digits = String(to).replace(/[^0-9+]/g, '');
-      toNumber = `whatsapp:${digits.startsWith('+') ? digits : '+' + digits}`;
-    }
-
-    const chunks = [];
-    const maxLen = 1500;
-    let remaining = text;
-    while (remaining.length > 0) {
-      chunks.push(remaining.slice(0, maxLen));
-      remaining = remaining.slice(maxLen);
-    }
-    for (const chunk of chunks) {
-      try {
-        await twilioClient.messages.create({
-          body: chunk,
-          from: fromNumber,
-          to: toNumber,
-        });
-      } catch (err) {
-        logError(`Twilio send error: ${err.message || err}`);
-        break;
-      }
+  async function sendReply(chatId, text) {
+    try {
+      await tg.sendMessage(chatId, text);
+    } catch (err) {
+      logError(`Telegram send error: ${err.message || err}`);
     }
   }
 
-  app.post('/sms', async (req, res) => {
-    // Respond immediately to Twilio (avoid timeout)
-    res.status(200).type('text/xml').send('<Response></Response>');
+  async function handleMessage(message) {
+    if (!message?.text) return;
 
-    const incomingFrom = req.body.From || '';
-    const messageBody = (req.body.Body || '').trim();
+    const chatId = message.chat.id;
+    const userId = String(message.from.id);
+    const messageBody = message.text.trim();
 
     if (!messageBody) return;
 
     // Allowlist check
-    const allowedNumbers = config.twilio.allowedNumber.split(',').map(s => s.trim()).filter(Boolean);
-    if (allowedNumbers.length > 0 && !allowedNumbers.some(n => phonesMatch(incomingFrom, n))) {
-      await sendReply(incomingFrom, 'Not authorized.');
+    if (allowedUserIds.length > 0 && !allowedUserIds.includes(userId)) {
+      await sendReply(chatId, 'Not authorized.');
       return;
     }
 
-    const userKey = `sms:${normalizePhone(incomingFrom)}`;
+    const userKey = `tg:${userId}`;
 
     if (!rateLimitOk(userKey)) {
-      await sendReply(incomingFrom, 'Rate limit: try again in ~30 seconds');
+      await sendReply(chatId, 'Rate limit: try again in ~30 seconds');
       return;
     }
 
-    const threadKey = brain.threadKeyFromPhone(incomingFrom);
+    const threadKey = brain.threadKeyFromTelegram(userId);
     const threadState = await brain.loadThread(threadKey);
     const lower = messageBody.toLowerCase();
 
+    // Strip /start command (Telegram sends this on first interaction)
+    if (lower === '/start') {
+      await sendReply(chatId, helpText());
+      return;
+    }
+
     try {
       // Help
-      if (lower === 'help' || lower.includes('what can you do')) {
-        await sendReply(incomingFrom, helpText());
+      if (lower === 'help' || lower === '/help' || lower.includes('what can you do')) {
+        await sendReply(chatId, helpText());
         return;
       }
 
       // Brain status
       if (lower.startsWith('brain status')) {
-        await sendReply(incomingFrom,
+        await sendReply(chatId,
           `Brain: ${brain.enabled ? 'enabled' : 'disabled'}\n` +
           `Bucket: ${config.gcp.brainBucket || '(missing)'}\n` +
           `Prefix: ${config.gcp.brainPrefix}`
@@ -148,24 +117,24 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
         return;
       }
       if (lower.startsWith('brain show')) {
-        const mem = JSON.stringify(threadState || {}, null, 2).slice(0, 1400);
-        await sendReply(incomingFrom, `Thread memory:\n${mem}`);
+        const mem = JSON.stringify(threadState || {}, null, 2).slice(0, 3500);
+        await sendReply(chatId, `Thread memory:\n${mem}`);
         return;
       }
       if (/^brain\s+last\s+error/i.test(lower)) {
         const err = threadState?.lastError;
         if (!err) {
-          await sendReply(incomingFrom, '✅ No recorded error.');
+          await sendReply(chatId, '✅ No recorded error.');
           return;
         }
-        await sendReply(incomingFrom,
+        await sendReply(chatId,
           `❌ Last error (${threadState?.lastErrorAt || '?'}):\n${err}`
         );
         return;
       }
       if (lower.startsWith('brain reset')) {
         if (!brain.enabled) {
-          await sendReply(incomingFrom, 'Brain is disabled (no bucket).');
+          await sendReply(chatId, 'Brain is disabled (no bucket).');
           return;
         }
         await brain.saveThread(threadKey, {
@@ -176,7 +145,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           lastErrorContext: null, lastErrorLogs: null,
           lastClaudeRawSnippet: null,
         });
-        await sendReply(incomingFrom, '✅ Brain reset.');
+        await sendReply(chatId, '✅ Brain reset.');
         return;
       }
 
@@ -184,18 +153,18 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
       if (lower === 'repos' || lower === 'list repos') {
         const repoList = await brain.listRepos();
         if (!repoList.length) {
-          await sendReply(incomingFrom, 'No repos indexed yet. Set OPENCLAW_REPOS or wait for auto-discovery.');
+          await sendReply(chatId, 'No repos indexed yet. Set OPENCLAW_REPOS or wait for auto-discovery.');
           return;
         }
         const list = repoList.map(r => `• ${r.name} (${r.language || '?'})`).join('\n');
-        await sendReply(incomingFrom, `📦 Indexed repos:\n${list}`);
+        await sendReply(chatId, `📦 Indexed repos:\n${list}`);
         return;
       }
 
       // PR summary
       const pr = parseGitHubPullUrl(messageBody);
       if (pr) {
-        await sendReply(incomingFrom, 'Summarizing that PR...');
+        await sendReply(chatId, 'Summarizing that PR...');
         const summary = await summarizePullRequest({
           octokit, anthropic,
           model: config.anthropic.model,
@@ -205,7 +174,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           lastPrUrl: `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.pull_number}`,
           lastRepo: `${pr.owner}/${pr.repo}`,
         });
-        await sendReply(incomingFrom, summary);
+        await sendReply(chatId, summary);
         return;
       }
 
@@ -213,11 +182,11 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
       const taskBlock = parseTaskBlock(messageBody);
       if (taskBlock) {
         if (!octokit) {
-          await sendReply(incomingFrom, 'GitHub not configured (GITHUB_TOKEN missing).');
+          await sendReply(chatId, 'GitHub not configured (GITHUB_TOKEN missing).');
           return;
         }
         if (!anthropic) {
-          await sendReply(incomingFrom, 'Claude not configured (ANTHROPIC_API_KEY missing).');
+          await sendReply(chatId, 'Claude not configured (ANTHROPIC_API_KEY missing).');
           return;
         }
 
@@ -230,11 +199,11 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
         }
 
         if (!owner || !repo) {
-          await sendReply(incomingFrom, 'I need a repo. Send:\nrepo: owner/repo\ntask: what to do');
+          await sendReply(chatId, 'I need a repo. Send:\nrepo: owner/repo\ntask: what to do');
           return;
         }
 
-        const sayProgress = async (t) => sendReply(incomingFrom, t);
+        const sayProgress = async (t) => sendReply(chatId, t);
 
         const repoMem = await brain.loadRepo(owner, repo);
         const summaryMemory = await brain.loadSummary();
@@ -282,7 +251,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
             '',
             'Reply with answers and I\'ll build the PR.',
           ].join('\n');
-          await sendReply(incomingFrom, msg);
+          await sendReply(chatId, msg);
           return;
         }
 
@@ -309,7 +278,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           branch: result.branch,
         });
 
-        await sendReply(incomingFrom, `✅ PR created: ${result.prUrl}\nBranch: ${result.branch}`);
+        await sendReply(chatId, `✅ PR created: ${result.prUrl}\nBranch: ${result.branch}`);
         return;
       }
 
@@ -317,16 +286,16 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
       const repoRef = parseGitHubRepoUrl(messageBody) || parseOwnerRepo(messageBody);
       if (repoRef && (lower.startsWith('tell me about') || lower.startsWith('describe') || lower.startsWith('what is'))) {
         if (!octokit) {
-          await sendReply(incomingFrom, 'GitHub not configured.');
+          await sendReply(chatId, 'GitHub not configured.');
           return;
         }
-        await sendReply(incomingFrom, `Looking up ${repoRef.owner}/${repoRef.repo}...`);
+        await sendReply(chatId, `Looking up ${repoRef.owner}/${repoRef.repo}...`);
         const { repoData, readmeText } = await fetchRepoAndReadme({ octokit, ...repoRef });
         await brain.saveThread(threadKey, { lastRepo: `${repoRef.owner}/${repoRef.repo}` });
 
         if (anthropic) {
           const prompt = [
-            'Summarize this GitHub repository briefly (for SMS, keep it short).',
+            'Summarize this GitHub repository briefly.',
             `Repo: ${repoData.full_name}`,
             `Description: ${repoData.description || '(none)'}`,
             `README:\n${readmeText.slice(0, 4000)}`,
@@ -335,13 +304,13 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           const resp = await anthropic.messages.create({
             model: config.anthropic.model,
             max_tokens: 500,
-            system: 'You are OpenClaw. Be very concise — this goes via SMS.',
+            system: 'You are OpenClaw. Be concise.',
             messages: [{ role: 'user', content: prompt }],
           });
           const text = resp.content?.find((c) => c.type === 'text')?.text?.trim() || '(No response)';
-          await sendReply(incomingFrom, text);
+          await sendReply(chatId, text);
         } else {
-          await sendReply(incomingFrom, `${repoData.full_name}\n${repoData.description || ''}\n${repoData.html_url}`);
+          await sendReply(chatId, `${repoData.full_name}\n${repoData.description || ''}\n${repoData.html_url}`);
         }
         return;
       }
@@ -349,17 +318,18 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
       // Gmail commands
       if (gmail && lower.startsWith('email')) {
         const emailCmd = lower.replace(/^email\s*/, '').trim();
+        const emailCmdRaw = messageBody.replace(/^email\s*/i, '').trim();
 
         if (emailCmd === 'check' || emailCmd === 'inbox' || emailCmd === '') {
           const msgs = await gmail.listMessages({ maxResults: 5 });
           if (!msgs.length) {
-            await sendReply(incomingFrom, '📭 No recent emails.');
+            await sendReply(chatId, '📭 No recent emails.');
             return;
           }
           const lines = msgs.map((m, i) =>
             `${i + 1}. ${m.from.slice(0, 40)}\n   ${m.subject}\n   ${m.date}`
           );
-          await sendReply(incomingFrom, `📬 Recent emails:\n\n${lines.join('\n\n')}`);
+          await sendReply(chatId, `📬 Recent emails:\n\n${lines.join('\n\n')}`);
           return;
         }
 
@@ -367,37 +337,37 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           const query = emailCmd.replace(/^search\s*/, '').trim();
           const msgs = await gmail.listMessages({ query, maxResults: 5 });
           if (!msgs.length) {
-            await sendReply(incomingFrom, `No emails found for: ${query}`);
+            await sendReply(chatId, `No emails found for: ${query}`);
             return;
           }
           const lines = msgs.map((m, i) =>
             `${i + 1}. ${m.from.slice(0, 40)}\n   ${m.subject}`
           );
-          await sendReply(incomingFrom, `📬 Results for "${query}":\n\n${lines.join('\n\n')}`);
+          await sendReply(chatId, `📬 Results for "${query}":\n\n${lines.join('\n\n')}`);
           return;
         }
 
         if (emailCmd.startsWith('read ')) {
           const msgId = emailCmd.replace(/^read\s*/, '').trim();
           const msg = await gmail.readMessage(msgId);
-          await sendReply(incomingFrom,
-            `📧 From: ${msg.from}\nSubject: ${msg.subject}\nDate: ${msg.date}\n\n${msg.body.slice(0, 1200)}`
+          await sendReply(chatId,
+            `📧 From: ${msg.from}\nSubject: ${msg.subject}\nDate: ${msg.date}\n\n${msg.body.slice(0, 3500)}`
           );
           return;
         }
 
         if (emailCmd.startsWith('send ')) {
-          const sendMatch = emailCmd.match(/^send\s+(\S+)\s+"([^"]+)"\s+(.+)$/s);
+          const sendMatch = emailCmdRaw.match(/^send\s+(\S+)\s+["\u201c\u201e\u00ab]([^"\u201d\u201f\u00bb]+)["\u201d\u201f\u00bb]\s+(.+)$/is);
           if (!sendMatch) {
-            await sendReply(incomingFrom, 'Usage: email send user@email.com "Subject" Body text here');
+            await sendReply(chatId, 'Usage: email send user@email.com "Subject" Body text here');
             return;
           }
           await gmail.sendEmail({ to: sendMatch[1], subject: sendMatch[2], body: sendMatch[3] });
-          await sendReply(incomingFrom, `✅ Email sent to ${sendMatch[1]}`);
+          await sendReply(chatId, `✅ Email sent to ${sendMatch[1]}`);
           return;
         }
 
-        await sendReply(incomingFrom,
+        await sendReply(chatId,
           'Email commands:\n• email check\n• email search <query>\n• email read <id>\n• email send user@email.com "Subject" Body'
         );
         return;
@@ -408,18 +378,16 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
         const calCmd = lower.replace(/^cal\s*/, '').trim();
         const calCmdRaw = messageBody.replace(/^cal\s*/i, '').trim();
 
-        // cal / cal list / cal today
         if (calCmd === '' || calCmd === 'list' || calCmd === 'today') {
           const events = await calendar.listEvents();
           if (!events.length) {
-            await sendReply(incomingFrom, '📅 No events today.');
+            await sendReply(chatId, '📅 No events today.');
             return;
           }
-          await sendReply(incomingFrom, `📅 Today's events:\n\n${events.map(e => e.formatted).join('\n\n')}`);
+          await sendReply(chatId, `📅 Today's events:\n\n${events.map(e => e.formatted).join('\n\n')}`);
           return;
         }
 
-        // cal list tomorrow / cal list 2026-03-15 / cal list week
         if (calCmd.startsWith('list ')) {
           const arg = calCmd.replace(/^list\s*/, '').trim();
           let timeMin, timeMax;
@@ -434,50 +402,47 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
           }
           const events = await calendar.listEvents({ timeMin, timeMax });
           if (!events.length) {
-            await sendReply(incomingFrom, `📅 No events for ${arg}.`);
+            await sendReply(chatId, `📅 No events for ${arg}.`);
             return;
           }
-          await sendReply(incomingFrom, `📅 Events (${arg}):\n\n${events.map(e => e.formatted).join('\n\n')}`);
+          await sendReply(chatId, `📅 Events (${arg}):\n\n${events.map(e => e.formatted).join('\n\n')}`);
           return;
         }
 
-        // cal get <eventId>
         if (calCmd.startsWith('get ')) {
           const eventId = calCmd.replace(/^get\s*/, '').trim();
           const ev = await calendar.getEvent(eventId);
-          await sendReply(incomingFrom, `📅 ${ev.formatted}\n${ev.htmlLink || ''}`);
+          await sendReply(chatId, `📅 ${ev.formatted}\n${ev.htmlLink || ''}`);
           return;
         }
 
-        // cal create "Title" 2026-03-12 10:00 30m alice@co.com,bob@co.com location:"Room 5"
         if (calCmd.startsWith('create ')) {
-          const createMatch = calCmdRaw.match(/^create\s+[""\u201c\u201e\u00ab]([^""\u201d\u201f\u00bb]+)[""\u201d\u201f\u00bb]\s+(\S+)\s+(\d{1,2}:\d{2})\s+(\S+)(.*)$/is);
+          const createMatch = calCmdRaw.match(/^create\s+["\u201c\u201e\u00ab]([^"\u201d\u201f\u00bb]+)["\u201d\u201f\u00bb]\s+(\S+)\s+(\d{1,2}:\d{2})\s+(\S+)(.*)$/is);
           if (!createMatch) {
-            await sendReply(incomingFrom, 'Usage: cal create "Title" <date> <time> <duration> [attendees] [location:"place"]');
+            await sendReply(chatId, 'Usage: cal create "Title" <date> <time> <duration> [attendees] [location:"place"]');
             return;
           }
           const [, title, date, time, duration, rest] = createMatch;
-          const locMatch = (rest || '').match(/location\s*:\s*[""\u201c]([^""\u201d]+)[""\u201d]/i);
+          const locMatch = (rest || '').match(/location\s*:\s*["\u201c]([^"\u201d]+)["\u201d]/i);
           const location = locMatch ? locMatch[1] : '';
-          const attendeePart = (rest || '').replace(/location\s*:\s*[""\u201c][^""\u201d]*[""\u201d]/i, '').trim();
+          const attendeePart = (rest || '').replace(/location\s*:\s*["\u201c][^"\u201d]*["\u201d]/i, '').trim();
           const attendees = attendeePart ? attendeePart.split(',').map(s => s.trim()).filter(Boolean) : [];
 
           const result = await calendar.createEvent({ summary: title, date, time, duration, attendees, location });
-          await sendReply(incomingFrom, `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`);
+          await sendReply(chatId, `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`);
           return;
         }
 
-        // cal update <eventId> field=value field=value
         if (calCmd.startsWith('update ')) {
           const parts = calCmdRaw.replace(/^update\s*/i, '').trim().split(/\s+/);
           const eventId = parts[0];
           if (!eventId || parts.length < 2) {
-            await sendReply(incomingFrom, 'Usage: cal update <eventId> title="New Title" time=14:00 date=2026-03-15 duration=1h location="Room"');
+            await sendReply(chatId, 'Usage: cal update <eventId> title="New Title" time=14:00 date=2026-03-15 duration=1h location="Room"');
             return;
           }
           const updates = {};
           const kvStr = parts.slice(1).join(' ');
-          const kvMatches = kvStr.matchAll(/(\w+)\s*=\s*[""\u201c]([^""\u201d]+)[""\u201d]|(\w+)\s*=\s*(\S+)/g);
+          const kvMatches = kvStr.matchAll(/(\w+)\s*=\s*["\u201c]([^"\u201d]+)["\u201d]|(\w+)\s*=\s*(\S+)/g);
           for (const m of kvMatches) {
             const key = m[1] || m[3];
             const val = m[2] || m[4];
@@ -486,19 +451,18 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
             else updates[key] = val;
           }
           const result = await calendar.updateEvent(eventId, updates);
-          await sendReply(incomingFrom, `✅ Event updated: ${result.summary}\n${result.htmlLink || ''}`);
+          await sendReply(chatId, `✅ Event updated: ${result.summary}\n${result.htmlLink || ''}`);
           return;
         }
 
-        // cal delete <eventId>
         if (calCmd.startsWith('delete ')) {
           const eventId = calCmd.replace(/^delete\s*/, '').trim();
           await calendar.deleteEvent(eventId);
-          await sendReply(incomingFrom, `✅ Event deleted.`);
+          await sendReply(chatId, `✅ Event deleted.`);
           return;
         }
 
-        await sendReply(incomingFrom,
+        await sendReply(chatId,
           'Calendar commands:\n• cal / cal list / cal list <date> / cal list week\n• cal get <id>\n• cal create "Title" <date> <time> <duration> [attendees]\n• cal update <id> field=value\n• cal delete <id>'
         );
         return;
@@ -506,7 +470,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
 
       // Claude general response fallback
       if (!anthropic) {
-        await sendReply(incomingFrom, 'Claude not configured. Send "help" for commands.');
+        await sendReply(chatId, 'Claude not configured. Send "help" for commands.');
         return;
       }
 
@@ -528,7 +492,7 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
         : '';
 
       const systemPrompt = [
-        'You are OpenClaw, a helpful assistant via SMS/WhatsApp. Be very concise.',
+        'You are OpenClaw, a helpful assistant via Telegram. Be concise.',
         'You can create PRs (user sends "repo: owner/repo" + "task: ..."), send emails ("email send ..."), manage calendar ("cal ..."), and check brain memory.',
         threadState?.lastRepo ? `User last worked on repo: ${threadState.lastRepo}` : '',
         threadState?.lastTask ? `Last task: ${threadState.lastTask}` : '',
@@ -547,29 +511,33 @@ async function startSmsApp({ config, anthropic, openai, octokit, storage, brain,
       trimmed.push({ role: 'assistant', content: text });
       await brain.saveThread(historyKey, { messages: trimmed.slice(-20) });
 
-      await sendReply(incomingFrom, text);
+      await sendReply(chatId, text);
 
     } catch (err) {
-      logError('SMS handler error:', err?.message || err);
+      logError('Telegram handler error:', err?.message || err);
       await brain.recordThreadError(threadKey, {
         lastError: (err?.message || 'unknown error').slice(0, 800),
-        lastErrorContext: 'sms:handler',
+        lastErrorContext: 'telegram:handler',
       });
-      await sendReply(incomingFrom, `❌ Error: ${(err?.message || 'unknown').slice(0, 200)}`);
+      await sendReply(chatId, `❌ Error: ${(err?.message || 'unknown').slice(0, 200)}`);
     }
+  }
+
+  // Start polling for messages
+  tg.startPolling((message) => {
+    handleMessage(message).catch(err => logError('Unhandled message error:', err?.message || err));
   });
 
   app.listen(config.port, '0.0.0.0', () => {
-    log(`⚡️ OpenClaw SMS/WhatsApp server running on port ${config.port}`);
+    log(`⚡️ OpenClaw Telegram server running on port ${config.port} (polling mode)`);
     log(
       `Claude: ${anthropic ? 'enabled' : 'disabled'} | GitHub: ${octokit ? 'enabled' : 'disabled'} | ` +
       `Brain: ${brain.enabled ? 'enabled' : 'disabled'} | ` +
-      `WhatsApp: ${config.twilio.useWhatsApp ? 'yes' : 'no'} | ` +
-      `Allowed number: ${config.twilio.allowedNumber || '(any)'}`
+      `Allowed users: ${config.telegram.allowedUserIds || '(any)'}`
     );
   });
 
   return app;
 }
 
-module.exports = { startSmsApp };
+module.exports = { startTelegramApp };
