@@ -1,7 +1,6 @@
 'use strict';
 
 const { config } = require('./src/config');
-const { startHealthServer } = require('./src/http');
 const { loadGcpCredentialsMaybe, createStorageClient } = require('./src/clients/gcp');
 const { createAnthropicClient } = require('./src/clients/anthropic');
 const { createOpenAIClient } = require('./src/clients/openai');
@@ -12,7 +11,7 @@ const { createCalendarClient } = require('./src/clients/calendar');
 const { indexRepos } = require('./src/repo-index');
 
 (async () => {
-  console.log(`Starting OpenClaw (platform: ${config.messagingPlatform})...`);
+  console.log('Starting OpenClaw...');
   const startTime = Date.now();
   
   // Load GCP credentials if needed
@@ -39,20 +38,8 @@ const { indexRepos } = require('./src/repo-index');
 
   const deps = { config, anthropic, openai, octokit, storage, brain, gmail, calendar };
 
-  if (config.messagingPlatform === 'sms') {
-    // SMS/WhatsApp mode — Express server handles both health + webhooks
-    const { startSmsApp } = require('./src/sms');
-    await startSmsApp(deps);
-  } else if (config.messagingPlatform === 'telegram') {
-    // Telegram mode — Express server with /telegram webhook
-    const { startTelegramApp } = require('./src/telegram');
-    await startTelegramApp(deps);
-  } else {
-    // Slack mode (default)
-    startHealthServer(config.port);
-    const { startSlackApp } = require('./src/app');
-    await startSlackApp(deps);
-  }
+  const { startTelegramApp } = require('./src/telegram');
+  await startTelegramApp(deps);
 
   console.log(`OpenClaw started in ${Date.now() - startTime}ms`);
 

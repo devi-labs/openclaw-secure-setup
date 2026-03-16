@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BOT_TOKEN="$(security find-generic-password -a "$USER" -s "openclaw/SLACK_BOT_TOKEN" -w)"
-APP_TOKEN="$(security find-generic-password -a "$USER" -s "openclaw/SLACK_APP_TOKEN" -w)"
+TELEGRAM_BOT_TOKEN="$(security find-generic-password -a "$USER" -s "openclaw/TELEGRAM_BOT_TOKEN" -w)"
 ANTHROPIC_API_KEY="$(security find-generic-password -a "$USER" -s "openclaw/ANTHROPIC_API_KEY" -w)"
 GITHUB_TOKEN="$(security find-generic-password -a "$USER" -s "openclaw/GITHUB_TOKEN" -w)"
 
@@ -11,8 +10,7 @@ podman rm -f openclaw >/dev/null 2>&1 || true
 exec podman run -d \
   --name openclaw \
   --restart=always \
-  -e SLACK_BOT_TOKEN="$BOT_TOKEN" \
-  -e SLACK_APP_TOKEN="$APP_TOKEN" \
+  -e TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   -e GITHUB_TOKEN="$GITHUB_TOKEN" \
   --read-only \

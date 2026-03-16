@@ -1,301 +1,305 @@
-# OpenClaw Secure Setup
+# OpenClaw
 
-**AI-powered development agent that creates PRs from Slack or WhatsApp**
+**Your personal AI coding assistant — talk to it on Telegram, and it writes code for you.**
 
-Describe a task in plain language. OpenClaw clones your repo, plans the changes with Claude, executes them in a sandbox, and opens a pull request — all from a text message or Slack.
+You describe what you want in plain English. OpenClaw figures out the code changes, makes them, and opens a pull request on GitHub — all from a Telegram chat.
 
-## What It Does
-
-- 🤖 **Describe a task → get a PR** — No IDE needed
-- 📱 **Works via Slack, WhatsApp, or SMS** — Your choice
-- 📧 **Gmail access** — Check, search, read, and send emails
-- 🧠 **Remembers context** — Conversation history and repo knowledge persist across messages
-- 🔒 **Secure sandbox** — Dangerous commands are blocked, everything else runs freely
-- ☁️ **Runs on a GCE VM or locally** — Always on, no cold starts
+No coding experience needed to get it running. This guide walks you through every step.
 
 ---
 
-## Prerequisites — Get Your Keys
+## What Can It Do?
 
-Before you start, you'll need a few API keys. Here's exactly where to get each one:
+- 🤖 **Write code for you** — Describe a task, get a GitHub pull request
+- 💬 **Chat on Telegram** — Just text it like you would a friend
+- 📧 **Manage your email** — Check, search, and send emails through Gmail
+- 📅 **Manage your calendar** — View, create, and update events
+- 🧠 **Remembers your conversations** — Picks up where you left off
+- 🔒 **Safe** — Runs in a locked-down sandbox so it can't do anything dangerous
 
-### 1. Anthropic API Key (required)
+---
 
-This powers Claude, the AI that plans and writes code.
+## Before You Start
+
+You'll need to sign up for a few free services and grab some keys. Think of these like passwords that let OpenClaw talk to other services on your behalf.
+
+**Don't worry — you only need to do this once.**
+
+### Step 1: Create a Telegram Bot (required)
+
+This is the bot you'll chat with on Telegram.
+
+1. Open Telegram and search for **@BotFather** (it has a blue checkmark)
+2. Send it the message: `/newbot`
+3. BotFather will ask you for a **name** (e.g. `My OpenClaw`) and a **username** (e.g. `my_openclaw_bot`)
+4. It will reply with a **token** that looks like `123456789:ABCdefGHI-jklMNOpqr` — **copy this and save it somewhere safe**
+
+> 💡 This token is secret. Don't share it with anyone.
+
+### Step 2: Get an Anthropic API Key (required)
+
+This connects OpenClaw to Claude, the AI that does the thinking and coding.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com/)
-2. Sign up or log in
-3. Click **API Keys** → **Create Key**
-4. Copy the key (starts with `sk-ant-`)
+2. Create an account (or sign in)
+3. Click **API Keys** in the sidebar
+4. Click **Create Key**
+5. Copy the key — it starts with `sk-ant-`
 
-### 2. GitHub Personal Access Token (optional — needed for PRs)
+> 💡 Anthropic gives you some free credits to start. After that, usage is pay-as-you-go (typically a few cents per task).
 
-This lets OpenClaw push branches and create pull requests.
+### Step 3: Get a GitHub Token (optional — needed to create pull requests)
+
+This lets OpenClaw push code to your GitHub repositories.
 
 1. Go to [github.com/settings/tokens](https://github.com/settings/tokens?type=beta)
 2. Click **Generate new token (classic)**
-3. Name it `openclaw`
-4. Check the **`repo`** scope
-5. Click **Generate token** → copy it (starts with `ghp_`)
+3. Give it a name like `openclaw`
+4. Under **Select scopes**, check the box next to **`repo`**
+5. Scroll down and click **Generate token**
+6. Copy the token — it starts with `ghp_`
 
-### 3. Twilio Account (optional — needed for WhatsApp/SMS)
+> 💡 If you skip this step, you can still chat with OpenClaw and ask it questions — it just won't be able to create pull requests.
 
-WhatsApp via Twilio Sandbox is the easiest way to text with OpenClaw. No carrier registration or phone number purchase needed.
+### Step 4: Set a Joining Code (optional — recommended)
 
-1. Sign up at [twilio.com/try-twilio](https://www.twilio.com/try-twilio) (free)
-2. From the [Console dashboard](https://console.twilio.com/), copy your **Account SID** and **Auth Token**
-3. Go to **Messaging → Try it out → Send a WhatsApp message**
-4. Follow the instructions to join the sandbox (send the join code from your WhatsApp)
-5. Note the **sandbox phone number** (e.g. `+14155238886`)
+You can set a secret code that people must send before the bot will talk to them. This keeps strangers from using your bot.
 
-### 4. Gmail OAuth2 (optional — needed for email commands)
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) → create or select a project
-2. Enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)
-3. Go to **APIs & Services → OAuth consent screen** → set to **External**, add your email as a test user
-4. Go to **APIs & Services → Credentials** → **Create Credentials → OAuth client ID**
-   - Application type: **Web application**
-   - Add redirect URI: `https://developers.google.com/oauthplayground`
-5. Copy the **Client ID** and **Client Secret**
-6. Go to [OAuth Playground](https://developers.google.com/oauthplayground/)
-   - ⚙️ Settings → check **"Use your own OAuth credentials"** → paste Client ID and Secret
-   - Step 1: select `https://mail.google.com/` → **Authorize APIs** → sign in
-   - Step 2: **Exchange authorization code for tokens** → copy the **Refresh Token**
+You'll set this in your configuration file later — just pick a word or phrase now and remember it.
 
 ---
 
-## Setup
+## Installation
+
+You'll need to use the **Terminal** (Mac/Linux) or **Command Prompt** (Windows) for these steps. Don't worry — just copy and paste each line.
+
+### 1. Install Node.js
+
+Node.js is what runs OpenClaw. Check if you already have it:
+
+```bash
+node --version
+```
+
+If you see a version number (like `v20.x.x`), you're good. If not:
+
+- **Mac**: Go to [nodejs.org](https://nodejs.org/), download the LTS version, and run the installer
+- **Windows**: Same — download from [nodejs.org](https://nodejs.org/) and run the installer
+- **Linux**: Run `sudo apt install nodejs npm` (Ubuntu/Debian) or `sudo dnf install nodejs` (Fedora)
+
+### 2. Download OpenClaw
 
 ```bash
 git clone https://github.com/devi-labs/openclaw-secure-setup.git
 cd openclaw-secure-setup
 npm install
+```
+
+> 💡 If `git` isn't installed, download it from [git-scm.com](https://git-scm.com/).
+
+### 3. Set Up Your Configuration
+
+```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in the keys you gathered above. At minimum you need:
+Now open the `.env` file in any text editor (Notepad, TextEdit, VS Code — anything works).
+
+Find these lines and fill in the values you got earlier:
 
 ```
-MESSAGING_PLATFORM=sms
-TWILIO_USE_WHATSAPP=1
-TWILIO_ACCOUNT_SID=AC...
-TWILIO_AUTH_TOKEN=...
-TWILIO_PHONE_NUMBER=+14155238886
-TWILIO_ALLOWED_NUMBER=+1XXXXXXXXXX
-ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=paste-your-telegram-token-here
+ANTHROPIC_API_KEY=paste-your-anthropic-key-here
 ```
+
+If you have a GitHub token, add it too:
+
+```
+GITHUB_TOKEN=paste-your-github-token-here
+```
+
+If you want a joining code (recommended), add:
+
+```
+TELEGRAM_JOIN_CODE=your-secret-code-here
+```
+
+Save the file.
+
+### 4. Start OpenClaw
+
+```bash
+node server.js
+```
+
+You should see something like:
+
+```
+Starting OpenClaw...
+⚡️ OpenClaw Telegram server running on port 8080 (polling mode)
+Claude: enabled | GitHub: enabled | Brain: enabled | Allowed users: (any)
+```
+
+**That's it!** Open Telegram, find your bot, and send it a message.
+
+> 💡 If you set a joining code, you'll need to send that code first before the bot responds.
 
 ---
 
-## Deploy — Option A: GCE VM (Recommended)
+## How to Use It
 
-Always-on cloud VM. Best for production use.
+Open your bot in Telegram and start chatting. Here are some things you can do:
 
-### 1. Build and deploy
+### Ask it to write code
+
+Send a message like this:
+
+```
+repo: your-username/your-repo
+task: add a health check endpoint to the express server
+```
+
+OpenClaw will clone your repo, write the code, and open a pull request. It sends you progress updates along the way.
+
+### Ask it questions
+
+Just type a question like you're texting a friend:
+
+```
+What's the difference between let and const in JavaScript?
+```
+
+### Check your email
+
+```
+email check
+```
+
+### Quick reference
+
+| What to type | What it does |
+|---|---|
+| `help` | Show all commands |
+| `repo: owner/repo` + `task: do something` | Create a pull request |
+| `tell me about owner/repo` | Get a summary of a GitHub repo |
+| `summarize https://github.com/.../pull/123` | Summarize a pull request |
+| `email check` | Show recent emails |
+| `email search invoices` | Search your inbox |
+| `email send user@email.com "Subject" Body` | Send an email |
+| `cal` | Show today's calendar events |
+| `brain status` | Check if memory is working |
+| `brain reset` | Clear conversation memory |
+| `self destruct` | Shut down the VM |
+
+---
+
+## Keeping It Running 24/7
+
+When you close your terminal, OpenClaw stops. If you want it running all the time, you have two options:
+
+### Option A: Run in the Cloud (Recommended)
+
+This puts OpenClaw on a Google Cloud VM that's always on. You'll need a [Google Cloud account](https://cloud.google.com/) (free tier available).
 
 ```bash
 bash deploy-gce.sh .env
 ```
 
-This reads your GCP project from `.env`, builds the container, pushes it to Artifact Registry, creates a VM with a static IP, and opens port 8080.
-
-### 2. Apply your config
+Then apply your settings:
 
 ```bash
 bash setup.sh .env
 ```
 
-The setup script reads your `.env`, prompts for any missing values, and applies everything to the VM container. No giant one-liner needed.
+The script handles everything — building, deploying, setting up a static IP, and opening the right ports.
 
-### 3. Set your Twilio webhook
+### Option B: Run Locally with Docker
 
-In the [Twilio Console](https://console.twilio.com/) → **Messaging → WhatsApp sandbox settings**, set the webhook URL to:
-
-```
-http://<YOUR-STATIC-IP>:8080/sms
-```
-
-Method: **POST**
-
-### 4. Test it
-
-Send a WhatsApp message to the sandbox number:
-
-```
-help
-```
-
-### SSH into your VM
+If you have [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) installed:
 
 ```bash
-gcloud compute ssh openclaw-vm --zone=us-central1-a --tunnel-through-iap
+docker build -t openclaw:local .
+docker run -d --name openclaw --restart=always --env-file .env -p 8080:8080 openclaw:local
 ```
 
-### Check container logs
+This keeps it running in the background, even if you close your terminal. It auto-restarts if your computer reboots.
+
+To check if it's running:
 
 ```bash
-gcloud compute ssh openclaw-vm --zone=us-central1-a --tunnel-through-iap -- "docker logs \$(docker ps -q) --tail 50"
+docker logs -f openclaw
+```
+
+To stop it:
+
+```bash
+docker rm -f openclaw
 ```
 
 ---
 
-## Deploy — Option B: Podman/Docker (Local)
+## Setting Up Gmail (Optional)
 
-Run on your own machine. Good for development and testing.
+If you want OpenClaw to check and send emails for you, this takes about 10 minutes:
 
-### 1. Build the container
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one)
+2. Search for **Gmail API** in the search bar and click **Enable**
+3. Go to **APIs & Services → OAuth consent screen**
+   - Choose **External**
+   - Fill in the app name (anything — e.g. "OpenClaw")
+   - Add your email as a **test user**
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+   - Application type: **Web application**
+   - Under **Authorized redirect URIs**, add: `https://developers.google.com/oauthplayground`
+   - Click **Create** and copy the **Client ID** and **Client Secret**
+5. Go to [OAuth Playground](https://developers.google.com/oauthplayground/)
+   - Click the ⚙️ gear icon → check **"Use your own OAuth credentials"** → paste your Client ID and Secret
+   - In the left panel, find and select `https://mail.google.com/`
+   - Click **Authorize APIs** → sign in with your Google account
+   - Click **Exchange authorization code for tokens** → copy the **Refresh Token**
 
-```bash
-podman build -t openclaw:local .
+Add all four values to your `.env` file:
+
+```
+GMAIL_CLIENT_ID=your-client-id
+GMAIL_CLIENT_SECRET=your-client-secret
+GMAIL_REFRESH_TOKEN=your-refresh-token
+GMAIL_USER_EMAIL=you@gmail.com
 ```
 
-### 2. Run it
-
-```bash
-podman run -d \
-  --name openclaw \
-  --restart=always \
-  --env-file .env \
-  -p 8080:8080 \
-  --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  --cap-drop ALL \
-  --security-opt no-new-privileges \
-  --pids-limit 256 \
-  --memory 512m \
-  --cpus 1 \
-  openclaw:local
-```
-
-### 3. Set your Twilio webhook
-
-For local development, use a tunnel to expose port 8080:
-
-```bash
-# Using ngrok:
-ngrok http 8080
-
-# Or using cloudflared:
-cloudflared tunnel --url http://localhost:8080
-```
-
-Then set the tunnel URL as your Twilio webhook: `https://<tunnel-url>/sms` (POST)
-
-### View logs
-
-```bash
-podman logs -f openclaw
-```
-
-### Restart after changes
-
-```bash
-podman rm -f openclaw
-podman build -t openclaw:local .
-podman run -d --name openclaw --env-file .env -p 8080:8080 openclaw:local
-```
+Restart OpenClaw and you're good to go.
 
 ---
 
-## Choose Your Messaging Platform
+## Something Not Working?
 
-Set `MESSAGING_PLATFORM` in your `.env`:
-
-| Platform | Setting | You'll Need |
-|----------|---------|-------------|
-| **WhatsApp** (easiest) | `MESSAGING_PLATFORM=sms` + `TWILIO_USE_WHATSAPP=1` | Free Twilio account |
-| **SMS** | `MESSAGING_PLATFORM=sms` | Twilio account + A2P 10DLC registration (US) |
-| **Slack** | `MESSAGING_PLATFORM=slack` | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` |
-
-> **Tip:** WhatsApp via the Twilio Sandbox is the fastest way to get started — no phone number purchase, no carrier registration.
-
-To restrict access to a single phone number:
-
-```
-TWILIO_ALLOWED_NUMBER=+1XXXXXXXXXX
-```
-
-This is your personal WhatsApp number (the one you text *from*), not the Twilio sandbox number.
-
----
-
-## Usage
-
-### Create a PR
-
-Send this as a single WhatsApp/Slack message:
-
-```
-repo: your-org/your-repo
-task: add a health check endpoint to the express server
-```
-
-OpenClaw clones the repo, plans the work, runs the commands, and opens a PR.
-
-### Commands
-
-| Command | What it does |
-|---------|-------------|
-| `help` | Show available commands |
-| `repos` | List indexed repos |
-| `tell me about owner/repo` | Summarize a GitHub repo |
-| `summarize https://github.com/.../pull/123` | Summarize a PR |
-| `brain status` | Check memory status |
-| `brain show` | Show what OpenClaw remembers |
-| `brain reset` | Clear memory |
-| `email check` | Show recent emails |
-| `email search invoices` | Search your inbox |
-| `email send user@email.com "Subject" Body` | Send an email |
-
-Or just ask a question — Claude responds directly with conversation history.
-
----
-
-## Environment Variables
-
-See [`.env.example`](.env.example) for the full list with comments. Here are the essentials:
-
-| Variable | Required | Where to get it |
-|----------|----------|-----------------|
-| `ANTHROPIC_API_KEY` | ✅ | [console.anthropic.com](https://console.anthropic.com/) → API Keys |
-| `GITHUB_TOKEN` | For PRs | [github.com/settings/tokens](https://github.com/settings/tokens) → `repo` scope |
-| `MESSAGING_PLATFORM` | | `slack` or `sms` (default: `slack`) |
-| `TWILIO_ACCOUNT_SID` | For WhatsApp/SMS | [Twilio Console](https://console.twilio.com/) dashboard |
-| `TWILIO_AUTH_TOKEN` | For WhatsApp/SMS | [Twilio Console](https://console.twilio.com/) dashboard |
-| `TWILIO_PHONE_NUMBER` | For WhatsApp/SMS | Twilio sandbox number |
-| `TWILIO_ALLOWED_NUMBER` | | Your personal phone number with country code |
-| `TWILIO_USE_WHATSAPP` | | Set to `1` for WhatsApp |
-| `GMAIL_CLIENT_ID` | For email | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
-| `GMAIL_CLIENT_SECRET` | For email | Same as above |
-| `GMAIL_REFRESH_TOKEN` | For email | [OAuth Playground](https://developers.google.com/oauthplayground/) |
-| `GMAIL_USER_EMAIL` | For email | Your Gmail address |
-| `OPENCLAW_REPOS` | | Comma-separated repos to index at startup |
+| What's happening | What to do |
+|---|---|
+| Bot doesn't respond at all | Make sure `node server.js` is running and check for errors in the terminal |
+| Bot says "Please send the joining code" | Send the code you set in `TELEGRAM_JOIN_CODE` |
+| "ANTHROPIC_API_KEY missing" | Make sure you added your Anthropic key to the `.env` file |
+| "GITHUB_TOKEN missing" | Add your GitHub token to `.env` (needed for creating PRs) |
+| PR creation fails | Send `brain last error` to see what went wrong |
+| Bot is slow to respond | Claude is thinking — complex tasks can take 30–60 seconds |
+| Container keeps restarting | Check logs: `docker logs openclaw --tail 50` |
 
 ---
 
 ## Security
 
-- Dangerous commands are denied (`rm`, `sudo`, `curl`, `wget`, `ssh`, `docker`, etc.)
-- Non-root container with read-only filesystem
-- Rate limiting (6 requests per 30 seconds per user)
-- Phone number allowlist for SMS/WhatsApp
-- Secrets stay in env vars or Secret Manager — never exposed to the LLM
+OpenClaw is designed to be safe:
 
-## Troubleshooting
+- **Dangerous commands are blocked** — It can't delete files, download things, or access your system
+- **Sandboxed** — Code runs in an isolated container with no special permissions
+- **Rate limited** — Max 6 requests per 30 seconds per user to prevent abuse
+- **Access control** — Use a joining code and/or user ID allowlist to restrict who can use it
+- **Secrets are protected** — Your API keys are never exposed to the AI
 
-| Problem | Fix |
-|---------|-----|
-| Container keeps restarting | Check logs: `docker logs $(docker ps -aq --latest) --tail 50` |
-| Brain says "disabled" | GCS backup is off — memory still works locally. Set `OPENCLAW_BRAIN_BUCKET` for backup. |
-| Claude plan JSON parse failed | Run `brain last error` to see what happened. Check your API key. |
-| WhatsApp not receiving | Check Twilio webhook URL is `http://<IP>:8080/sms` (POST). Check firewall allows port 8080. |
-| Unauthorized number rejected | Make sure `TWILIO_ALLOWED_NUMBER` matches your phone with country code (e.g., `+1`). |
-| External IP changed | Reserve a static IP. The deploy script does this automatically for new VMs. |
-| `Blocked command from plan` | The sandbox denylist blocked a command. Check `src/util/proc.js` to adjust. |
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome.
+Want to help improve OpenClaw? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -307,4 +311,4 @@ See [CREDITS.md](CREDITS.md).
 
 ---
 
-⚠️ **OpenClaw executes code based on AI-generated plans. Always review PRs before merging.**
+⚠️ **OpenClaw writes code using AI. Always review pull requests before merging them into your project.**

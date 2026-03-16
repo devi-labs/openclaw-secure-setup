@@ -29,7 +29,7 @@ function parseTaskBlock(text) {
 
   const task = taskLine[1].trim();
   const repoText = repoLine ? repoLine[1].trim() : '';
-  const repoRef = repoText ? (parseOwnerRepo(repoText) || parseGitHubRepoUrl(repoText)) : null;
+  const repoRef = repoText ? (parseGitHubRepoUrl(repoText) || parseOwnerRepo(repoText)) : null;
 
   const constraintsLine = (text || '').match(/^\s*constraints?\s*:\s*([^\n]+)\s*$/im);
   const acceptanceLine = (text || '').match(/^\s*acceptance\s*:\s*([^\n]+)\s*$/im);

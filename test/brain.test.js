@@ -84,14 +84,6 @@ describe('createBrain (local-only, no GCS)', () => {
   });
 });
 
-describe('threadKeyFromPhone', () => {
-  it('normalizes phone numbers', () => {
-    const brain = createBrain({ storage: null, bucket: null, prefix: 'ph' });
-    assert.equal(brain.threadKeyFromPhone('+1-312-975-4202'), 'sms:+13129754202');
-    assert.equal(brain.threadKeyFromPhone('312 975 4202'), 'sms:3129754202');
-  });
-});
-
 describe('sanitizePlanForStorage', () => {
   it('clamps prTitle to 200 chars', () => {
     const brain = createBrain({ storage: null, bucket: null, prefix: 's' });

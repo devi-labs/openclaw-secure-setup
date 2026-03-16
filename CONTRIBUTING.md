@@ -21,8 +21,7 @@ cp .env.example .env
 ```
 
 Required for local dev:
-- `SLACK_BOT_TOKEN` - Get from your Slack app settings
-- `SLACK_APP_TOKEN` - App-level token for Socket Mode
+- `TELEGRAM_BOT_TOKEN` - Get from [BotFather](https://t.me/botfather)
 - `ANTHROPIC_API_KEY` - Claude API key
 - `GITHUB_TOKEN` - Personal access token with `repo` scope
 
@@ -34,15 +33,15 @@ node server.js
 
 You should see:
 ```
-⚡️ OpenClaw Slack bot running (Socket Mode)
+⚡️ OpenClaw Telegram bot running
 Claude: enabled | GitHub: enabled | ...
 ```
 
-### 4. Test in Slack
+### 4. Test in Telegram
 
-In a Slack channel where your app is installed:
+Send a message to your bot in Telegram:
 ```
-@YourBotName help
+help
 ```
 
 ## Project Structure
@@ -51,7 +50,7 @@ In a Slack channel where your app is installed:
 .
 ├── server.js              # Entry point
 └── src/
-    ├── app.js             # Main Slack event handler
+    ├── telegram.js        # Main Telegram event handler
     ├── config.js          # Environment config
     ├── http.js            # Health check server
     ├── clients/           # API client factories
@@ -82,15 +81,15 @@ In a Slack channel where your app is installed:
 
 Currently there are no automated tests. When adding new features:
 
-1. Test manually in Slack
+1. Test manually in Telegram
 2. Check error handling with `@OpenClaw brain last error`
 3. Verify logs with `podman logs openclaw` or `gcloud run services logs read openclaw`
 
 ## Adding New Commands
 
-To add a new Slack command:
+To add a new command:
 
-1. Add the handler in `src/app.js` in the `app.event('app_mention')` block
+1. Add the handler in `src/telegram.js`
 2. Keep the handler concise; extract complex logic to separate modules
 3. Update help text in `helpText()` function
 4. Add error handling and brain error recording

@@ -186,11 +186,6 @@ function createBrain({ storage, bucket, prefix }) {
     await writeJson(objPath, existing);
   }
 
-  function threadKeyFromPhone(phoneNumber) {
-    const safe = String(phoneNumber).replace(/[^0-9+]/g, '');
-    return `sms:${safe}`;
-  }
-
   function threadKeyFromTelegram(userId) {
     return `tg:${String(userId).replace(/[^0-9]/g, '')}`;
   }
@@ -212,7 +207,6 @@ function createBrain({ storage, bucket, prefix }) {
   return {
     enabled,
     threadKeyFromEvent,
-    threadKeyFromPhone,
     threadKeyFromTelegram,
     loadThread,
     saveThread,

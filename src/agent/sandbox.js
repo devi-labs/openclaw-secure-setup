@@ -60,16 +60,15 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
   if (!config.github.token) throw new Error('GITHUB_TOKEN missing in container');
   if (!anthropic) throw new Error('ANTHROPIC_API_KEY missing');
 
-  const repoResp = await octokit.repos.get({ owner, repo });
-  const defaultBranch = repoResp.data.default_branch;
-
   const jobId = makeJobId();
   const root = config.workdir;
   const jobDir = path.join(root, `${owner}-${repo}-${jobId}`);
 
-  fs.mkdirSync(jobDir, { recursive: true });
-
   try {
+    const repoResp = await octokit.repos.get({ owner, repo });
+    const defaultBranch = repoResp.data.default_branch;
+
+    fs.mkdirSync(jobDir, { recursive: true });
     // Clone
     const cloneUrl = httpsRepoUrl(owner, repo, config.github.token);
     let r = await runCmd('git', ['clone', '--depth=1', '--branch', defaultBranch, cloneUrl, jobDir], { env: process.env, timeout: 60_000 });
@@ -224,8 +223,10 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
                 fixSucceeded = false;
                 break;
               }
+              const fIsInstall = fCmd === 'npm' || fCmd === 'yarn' || fCmd === 'pnpm' || fCmd === 'pip';
+              const fTimeout = fIsInstall ? 180_000 : 120_000;
               console.log(`🩹 [${jobId}] ${fCmd} ${fArgs.join(' ')}`);
-              const fRes = await runCmd(fCmd, fArgs, { cwd: jobDir, env: execEnv });
+              const fRes = await runCmd(fCmd, fArgs, { cwd: jobDir, env: execEnv, timeout: fTimeout });
               if (fRes.code !== 0) {
                 console.log(`🩹 [${jobId}] Fix step failed: ${fCmd} (code ${fRes.code})`);
                 fixSucceeded = false;
@@ -236,7 +237,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
             // Retry the original failed step if fix says to
             if (fixSucceeded && fix.retryOriginal !== false) {
               console.log(`🩹 [${jobId}] Retrying original step: ${cmd}`);
-              const retry = await runCmd(cmd, args, { cwd: jobDir, env: execEnv });
+              const retry = await runCmd(cmd, args, { cwd: jobDir, env: execEnv, timeout: stepTimeout });
               if (retry.code === 0) {
                 await sayProgress?.(`✅ Self-healed: ${fix.diagnosis || cmd}`);
                 continue; // success — move to next plan step
@@ -319,8 +320,10 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
         if (!commandAllowed(cmd, args)) {
           throw new Error(`Blocked command from retry plan: ${cmd} ${(args || []).join(' ')}`);
         }
+        const retryIsInstall = cmd === 'npm' || cmd === 'yarn' || cmd === 'pnpm' || cmd === 'pip';
+        const retryTimeout = retryIsInstall ? 180_000 : 120_000;
         console.log(`▶️ [${jobId}] (retry) ${cmd} ${(args || []).join(' ')}`);
-        const res = await runCmd(cmd, args, { cwd: jobDir, env: execEnv });
+        const res = await runCmd(cmd, args, { cwd: jobDir, env: execEnv, timeout: retryTimeout });
         if (res.code !== 0) {
           throw new Error(`Retry command failed: ${cmd} ${(args || []).join(' ')}\n${safeLogChunk(res.err || res.out)}`);
         }
@@ -347,7 +350,16 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     }
 
     // Commit
-    await runCmd('git', ['add', '-A'], { cwd: jobDir, env: execEnv });
+    r = await runCmd('git', ['add', '-A'], { cwd: jobDir, env: execEnv });
+    if (r.code !== 0) {
+      await recordThreadError(threadKey, {
+        lastError: 'git add failed',
+        lastErrorJobId: jobId,
+        lastErrorContext: 'git:add',
+        lastErrorLogs: clampString(safeLogChunk(r.err || r.out, 6000), 6000),
+      });
+      throw new Error(`git add failed:\n${safeLogChunk(r.err || r.out)}`);
+    }
 
     const commitMsg =
       (plan.commitMessage && String(plan.commitMessage).slice(0, 120)) ||
@@ -410,6 +422,9 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
       lastErrorContext: 'sandboxFastPR:throw',
     });
     throw e;
+  } finally {
+    // Clean up cloned repo to prevent disk exhaustion
+    fs.promises.rm(jobDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 

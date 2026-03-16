@@ -1,22 +1,12 @@
 'use strict';
 
 const config = {
-  // Messaging platform: 'slack' or 'sms'
-  messagingPlatform: process.env.MESSAGING_PLATFORM || 'slack',
-  slack: {
-    botToken: process.env.SLACK_BOT_TOKEN,
-    appToken: process.env.SLACK_APP_TOKEN,
-  },
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
-    allowedNumber: process.env.TWILIO_ALLOWED_NUMBER || '',
-    useWhatsApp: process.env.TWILIO_USE_WHATSAPP === '1',
-  },
+  // Messaging platform: 'telegram'
+  messagingPlatform: process.env.MESSAGING_PLATFORM || 'telegram',
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
     allowedUserIds: process.env.TELEGRAM_ALLOWED_USER_IDS || '',
+    joinCode: process.env.TELEGRAM_JOIN_CODE || '',
   },
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY,

@@ -74,28 +74,9 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     ENV_VALS["$key"]="$val"
   }
 
-  echo "── Messaging ──"
-  prompt_val MESSAGING_PLATFORM  "Platform (slack/sms/telegram)" required
-
-  if [[ "${ENV_VALS[MESSAGING_PLATFORM]}" == "sms" ]]; then
-    prompt_val TWILIO_USE_WHATSAPP "Use WhatsApp? (1/0)"
-    echo ""
-    echo "── Twilio ──"
-    prompt_val TWILIO_ACCOUNT_SID   "Account SID"    required secret
-    prompt_val TWILIO_AUTH_TOKEN     "Auth Token"     required secret
-    prompt_val TWILIO_PHONE_NUMBER   "Twilio/Sandbox Phone Number" required
-    prompt_val TWILIO_ALLOWED_NUMBER "Your phone number (allowlist)"
-  elif [[ "${ENV_VALS[MESSAGING_PLATFORM]}" == "telegram" ]]; then
-    echo ""
-    echo "── Telegram ──"
-    prompt_val TELEGRAM_BOT_TOKEN      "Bot Token (from @BotFather)" required secret
-    prompt_val TELEGRAM_ALLOWED_USER_IDS "Allowed user IDs (comma-separated)"
-  else
-    echo ""
-    echo "── Slack ──"
-    prompt_val SLACK_BOT_TOKEN "Bot Token"     required secret
-    prompt_val SLACK_APP_TOKEN "App Token"     required secret
-  fi
+  echo "── Telegram ──"
+  prompt_val TELEGRAM_BOT_TOKEN      "Bot Token (from @BotFather)" required secret
+  prompt_val TELEGRAM_ALLOWED_USER_IDS "Allowed user IDs (comma-separated)"
 
   echo ""
   echo "── API Keys ──"
@@ -153,4 +134,4 @@ echo ""
 echo "📱 Webhook URL: http://$(gcloud compute instances describe "$INSTANCE" \
   --zone="$ZONE" \
   $PROJECT_FLAG \
-  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'):8080/sms"
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'):8080/telegram"

@@ -13,7 +13,7 @@ Before publishing to GitHub, verify:
 
 ## ✅ Documentation
 
-- [x] README.md — comprehensive setup guide (Slack, WhatsApp/SMS, Gmail, GCE)
+- [x] README.md — comprehensive setup guide (Telegram, Gmail, GCE)
 - [x] CONTRIBUTING.md — contributor guidelines
 - [x] LICENSE — MIT license
 - [x] Issue templates — bug report & feature request
@@ -25,7 +25,7 @@ Before publishing to GitHub, verify:
 - [x] Command allowlist (git, npm, node only)
 - [x] Rate limiting enabled
 - [x] Secrets via Secret Manager or Keychain
-- [x] Phone number allowlist for SMS/WhatsApp
+- [x] User ID allowlist for Telegram
 - [x] Unauthorized numbers receive "Not authorized" reply
 
 ## ✅ Testing
@@ -38,8 +38,7 @@ Before publishing to GitHub, verify:
 
 ## ✅ Features Documented
 
-- [x] Slack integration
-- [x] WhatsApp/SMS via Twilio
+- [x] Telegram integration
 - [x] Gmail integration (check, search, read, send)
 - [x] Local-first memory with GCS backup
 - [x] Clarification mode (only when truly confused)
@@ -52,10 +51,10 @@ Before publishing to GitHub, verify:
 
 - [ ] Review all diffs: `git diff`
 - [ ] Stage relevant files: `git add <files>`
-- [ ] Commit: `git commit -m "v2.0: WhatsApp, Gmail, local brain, GCE deploy, tests"`
+- [ ] Commit: `git commit -m "v2.0: Telegram, Gmail, local brain, GCE deploy, tests"`
 - [ ] Push: `git push origin main`
-- [ ] Update repo description: "AI-powered dev agent — PRs from Slack or WhatsApp"
-- [ ] Add topics: `slack-bot`, `whatsapp-bot`, `ai-agent`, `claude`, `github-automation`
+- [ ] Update repo description: "AI-powered dev agent — PRs from Telegram"
+- [ ] Add topics: `telegram-bot`, `ai-agent`, `claude`, `github-automation`
 - [ ] Enable Issues and Discussions
 
 ## 🔲 Post-Publishing

@@ -1,6 +1,6 @@
 'use strict';
 
-async function summarizePullRequest({ octokit, anthropic, model, pr, slackContext = '' }) {
+async function summarizePullRequest({ octokit, anthropic, model, pr, context = '' }) {
   if (!octokit) return "GitHub integration isn\'t configured (`GITHUB_TOKEN` missing).";
 
   const prResp = await octokit.pulls.get(pr);
@@ -36,7 +36,7 @@ async function summarizePullRequest({ octokit, anthropic, model, pr, slackContex
   }
 
   const prompt = [
-    'Summarize this GitHub pull request for a Slack thread.',
+    'Summarize this GitHub pull request.',
     'Be concise, technical, and practical.',
     'Output format:',
     '1) 1-sentence summary',
@@ -44,7 +44,7 @@ async function summarizePullRequest({ octokit, anthropic, model, pr, slackContex
     '3) Risks / what to review',
     '4) Suggested test plan',
     '',
-    `Slack context (if any): ${slackContext || '(none)'}`,
+    `Context (if any): ${context || '(none)'}`,
     '',
     `Title: ${prData.title}`,
     `Author: ${prData.user?.login}`,
@@ -59,7 +59,7 @@ async function summarizePullRequest({ octokit, anthropic, model, pr, slackContex
     model,
     max_tokens: 950,
     system:
-      "You are OpenClaw, a Slack bot with server-side integrations. " +
+      "You are OpenClaw, an AI assistant with server-side integrations. " +
       "Never reveal secrets. Keep the answer readable.",
     messages: [{ role: 'user', content: prompt }],
   });

@@ -13,12 +13,13 @@ function safeLogChunk(s, max = 3500) {
 }
 
 function httpsRepoUrl(owner, repo, token) {
-  return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+  return `https://x-access-token:${encodeURIComponent(token)}@github.com/${owner}/${repo}.git`;
 }
 
 function commandAllowed(cmd, args) {
   const deny = new Set([
-    'rmdir', 'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff',
+    'rm', 'rmdir', 'curl', 'wget',
+    'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff',
     'passwd', 'useradd', 'userdel', 'groupadd', 'chown', 'chmod',
     'mount', 'umount', 'fdisk', 'parted',
     'iptables', 'ip6tables', 'nft',

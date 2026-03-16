@@ -20,6 +20,36 @@ function ts() {
 function log(...args) { console.log(`[${ts()}]`, ...args); }
 function logError(...args) { console.error(`[${ts()}]`, ...args); }
 
+const METADATA_BASE = 'http://169.254.169.254/computeMetadata/v1';
+const METADATA_HEADERS = { 'Metadata-Flavor': 'Google' };
+
+async function fetchGceMetadata() {
+  const [project, zonePath, instance] = await Promise.all([
+    fetch(`${METADATA_BASE}/project/project-id`, { headers: METADATA_HEADERS }).then(r => r.text()),
+    fetch(`${METADATA_BASE}/instance/zone`, { headers: METADATA_HEADERS }).then(r => r.text()),
+    fetch(`${METADATA_BASE}/instance/name`, { headers: METADATA_HEADERS }).then(r => r.text()),
+  ]);
+  const zone = zonePath.split('/').pop();
+  return { project, zone, instance };
+}
+
+async function stopGceInstance({ project, zone, instance }) {
+  const tokenResp = await fetch(
+    `${METADATA_BASE}/instance/service-accounts/default/token`,
+    { headers: METADATA_HEADERS },
+  );
+  const { access_token } = await tokenResp.json();
+  const url = `https://compute.googleapis.com/compute/v1/projects/${project}/zones/${zone}/instances/${instance}/stop`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${access_token}` },
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Compute API ${resp.status}: ${body}`);
+  }
+}
+
 function helpText() {
   return [
     'OpenClaw can help with:',
@@ -94,6 +124,18 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
     const threadState = await brain.loadThread(threadKey);
     const lower = messageBody.toLowerCase();
 
+    // Join code gate — require code before responding to any messages
+    const joinCode = config.telegram.joinCode;
+    if (joinCode && !threadState?.joined) {
+      if (messageBody === joinCode) {
+        await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString() });
+        await sendReply(chatId, '✅ Welcome! Send "help" to see what I can do.');
+        return;
+      }
+      await sendReply(chatId, 'Please send the joining code to get started.');
+      return;
+    }
+
     // Strip /start command (Telegram sends this on first interaction)
     if (lower === '/start') {
       await sendReply(chatId, helpText());
@@ -101,6 +143,21 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
     }
 
     try {
+      // Self-destruct — stop the GCE VM (or exit if not on GCE)
+      if (lower === 'self destruct' || lower === 'selfdestruct') {
+        await sendReply(chatId, '💥 Self-destructing...');
+        log(`Self-destruct triggered by user ${userId}`);
+        try {
+          const meta = await fetchGceMetadata();
+          await stopGceInstance(meta);
+          log(`VM stop requested: ${meta.instance} (${meta.zone})`);
+        } catch (err) {
+          logError('GCE stop failed, forcing process exit:', err?.message || err);
+          setTimeout(() => process.exit(1), 500);
+        }
+        return;
+      }
+
       // Help
       if (lower === 'help' || lower === '/help' || lower.includes('what can you do')) {
         await sendReply(chatId, helpText());
@@ -168,7 +225,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         const summary = await summarizePullRequest({
           octokit, anthropic,
           model: config.anthropic.model,
-          pr, slackContext: messageBody,
+          pr, context: messageBody,
         });
         await brain.saveThread(threadKey, {
           lastPrUrl: `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.pull_number}`,
