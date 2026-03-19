@@ -354,10 +354,7 @@ ROUNDUP_EMAIL_FROM=you@gmail.com
 
 **Test it:** Send `roundup` or `roundup daily` in your bot chat to get an instant preview.
 
-| Key | What | Required? |
-|---|---|---|
-| `X_BEARER_TOKEN` | For Twitter. Get free at [developer.x.com](https://developer.x.com) | Only for Twitter |
-| Gmail OAuth | For email delivery | Only if you want email (see Google APIs above) |
+Twitter and LinkedIn work automatically with no API keys (uses Google News RSS). Email delivery requires Gmail OAuth (see Google APIs above).
 
 ---
 

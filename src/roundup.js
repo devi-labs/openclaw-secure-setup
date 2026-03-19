@@ -27,27 +27,15 @@ async function sendTelegramDigest(config, brain, body, subject) {
   }
 }
 
-// Fetch recent tweets for a handle via X API v2
+// Fetch recent activity for a Twitter/X handle via Google News RSS (free, no API key needed)
 async function fetchTweets(bearerToken, handle) {
   try {
-    const userResp = await fetch(`https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}`, {
-      headers: { Authorization: `Bearer ${bearerToken}` },
-    });
-    if (!userResp.ok) return [];
-    const userData = await userResp.json();
-    const userId = userData.data?.id;
-    if (!userId) return [];
-
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const tweetsResp = await fetch(
-      `https://api.x.com/2/users/${userId}/tweets?max_results=10&start_time=${since}&tweet.fields=created_at,text`,
-      { headers: { Authorization: `Bearer ${bearerToken}` } },
-    );
-    if (!tweetsResp.ok) return [];
-    const tweetsData = await tweetsResp.json();
-    return (tweetsData.data || []).map(t => ({
-      text: t.text,
-      date: t.created_at ? new Date(t.created_at).toLocaleDateString() : '',
+    // Use Google News RSS to find recent mentions/news about this person
+    const articles = await fetchNewsRSS(`"@${handle}" OR "${handle}" twitter`, 3);
+    return articles.map(a => ({
+      text: a.title,
+      date: a.date ? new Date(a.date).toLocaleDateString() : '',
+      link: a.link,
     }));
   } catch (err) {
     console.error(`[roundup] Twitter fetch error for @${handle}:`, err?.message || err);
@@ -162,6 +150,16 @@ async function sendDailyRoundup({ config, anthropic, gmail, calendar, tasks, bra
     }
   }
 
+  // Twitter/X
+  if (handles.length) {
+    const allTweets = [];
+    for (const handle of handles) {
+      const tweets = await fetchTweets(rc.xBearerToken, handle);
+      allTweets.push(...tweets.map(t => `• @${handle}: ${t.text}${t.link ? ` — ${t.link}` : ''}`));
+    }
+    if (allTweets.length) sections.push({ heading: '🐦 Twitter/X', items: allTweets });
+  }
+
   // News
   if (dailyTopics.length) {
     for (const topic of dailyTopics) {
@@ -173,19 +171,6 @@ async function sendDailyRoundup({ config, anthropic, gmail, calendar, tasks, bra
         });
       }
     }
-  }
-
-  // Twitter
-  if (handles.length && !rc.xBearerToken) {
-    console.log('[roundup] Twitter handles configured but X_BEARER_TOKEN is missing — skipping Twitter');
-  }
-  if (handles.length && rc.xBearerToken) {
-    const allTweets = [];
-    for (const handle of handles) {
-      const tweets = await fetchTweets(rc.xBearerToken, handle);
-      allTweets.push(...tweets.map(t => `@${handle}: ${t.text} (${t.date})`));
-    }
-    if (allTweets.length) sections.push({ heading: '🐦 Twitter/X', items: allTweets });
   }
 
   // LinkedIn
