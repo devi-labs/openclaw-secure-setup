@@ -18,6 +18,7 @@ const {
   lookupRestaurantPhone, makeReservationCall, waitForCallCompletion, formatCallResult,
 } = require('./reservations');
 const { runSkillPipeline } = require('./skills');
+const { sendDailyRoundup, sendWeeklyRoundup } = require('./roundup');
 
 function ts() {
   return new Date().toISOString().replace('T', ' ').replace('Z', '');
@@ -162,13 +163,17 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
     const joinCode = config.telegram.joinCode;
     if (joinCode && !threadState?.joined) {
       if (messageBody === joinCode) {
-        await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString() });
+        await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString(), chatId });
+        await brain.saveActiveChat(chatId);
         await sendReply(chatId, '✅ Welcome! Send "help" to see what I can do.');
         return;
       }
       await sendReply(chatId, 'Please send the joining code to get started.');
       return;
     }
+
+    // Track this chat for roundup delivery
+    await brain.saveActiveChat(chatId);
 
     // Strip /start command (Telegram sends this on first interaction)
     if (lower === '/start') {
@@ -651,6 +656,37 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         return;
       }
 
+      // Roundup commands — send test digests
+      if (lower.startsWith('roundup')) {
+        const roundupCmd = lower.replace(/^roundup\s*/, '').trim();
+        const deps = { config, anthropic, gmail, calendar, tasks, brain };
+
+        if (roundupCmd === 'daily' || roundupCmd === 'test' || roundupCmd === '') {
+          await sendReply(chatId, '📰 Sending daily roundup...');
+          try {
+            await sendDailyRoundup(deps);
+            await sendReply(chatId, '✅ Daily roundup sent! Check your email.');
+          } catch (err) {
+            await sendReply(chatId, `❌ Daily roundup failed: ${(err?.message || 'unknown').slice(0, 300)}`);
+          }
+          return;
+        }
+
+        if (roundupCmd === 'weekly') {
+          await sendReply(chatId, '📰 Sending weekly roundup...');
+          try {
+            await sendWeeklyRoundup(deps);
+            await sendReply(chatId, '✅ Weekly roundup sent! Check your email.');
+          } catch (err) {
+            await sendReply(chatId, `❌ Weekly roundup failed: ${(err?.message || 'unknown').slice(0, 300)}`);
+          }
+          return;
+        }
+
+        await sendReply(chatId, 'Roundup commands:\n• roundup daily — send daily digest now\n• roundup weekly — send weekly digest now');
+        return;
+      }
+
       // Calendar commands
       if (calendar && lower.startsWith('cal')) {
         const calCmd = lower.replace(/^cal\s*/, '').trim();
@@ -695,18 +731,21 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         }
 
         if (calCmd.startsWith('create ')) {
-          const createMatch = calCmdRaw.match(/^create\s+["\u201c\u201e\u00ab]([^"\u201d\u201f\u00bb]+)["\u201d\u201f\u00bb]\s+(\S+)\s+(\d{1,2}:\d{2})\s+(\S+)(.*)$/is);
+          // Flexible regex: title in quotes, date (any format), time (any format), then rest (duration + extras)
+          const createMatch = calCmdRaw.match(/^create\s+["\u201c\u201e\u00ab]([^"\u201d\u201f\u00bb]+)["\u201d\u201f\u00bb]\s+(\S+)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(.+)$/is);
           if (!createMatch) {
-            await sendReply(chatId, 'Usage: cal create "Title" <date> <time> <duration> [attendees] [location:"place"]');
+            await sendReply(chatId, 'Usage: cal create "Title" <date> <time> <duration>\nExamples:\n• cal create "Dentist" 03/19 2pm 1 hour\n• cal create "Lunch" tomorrow 12:30pm 1h30m');
             return;
           }
-          const [, title, date, time, duration, rest] = createMatch;
+          const [, title, date, time, remainder] = createMatch;
+          // Extract duration from the front of remainder, leaving attendees/location behind
+          const { minutes, rest } = calendar.extractDuration(remainder);
           const locMatch = (rest || '').match(/location\s*:\s*["\u201c]([^"\u201d]+)["\u201d]/i);
           const location = locMatch ? locMatch[1] : '';
           const attendeePart = (rest || '').replace(/location\s*:\s*["\u201c][^"\u201d]*["\u201d]/i, '').trim();
           const attendees = attendeePart ? attendeePart.split(',').map(s => s.trim()).filter(Boolean) : [];
 
-          const result = await calendar.createEvent({ summary: title, date, time, duration, attendees, location });
+          const result = await calendar.createEvent({ summary: title, date, time, duration: `${minutes}m`, attendees, location });
           await sendReply(chatId, `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`);
           return;
         }
@@ -766,7 +805,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
               '• {"intent":"todo_done","index":"number"} — complete a todo by its list number\n' +
               '• {"intent":"todo_delete","index":"number"} — delete a todo by its list number\n' +
               '• {"intent":"cal_list","date":"date or empty"} — list calendar events\n' +
-              '• {"intent":"cal_create","title":"t","date":"d","time":"t","duration":"d"} — create event\n' +
+              '• {"intent":"cal_create","title":"t","date":"d","time":"t","duration":"d","location":"optional","attendees":"optional comma-sep emails"} — create event\n' +
               '• {"intent":"none"} — doesn\'t match any built-in action',
             messages: [{ role: 'user', content: messageBody }],
           });
@@ -840,9 +879,10 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
             return;
           }
           if (intent.intent === 'cal_create' && calendar && intent.title && intent.date && intent.time) {
+            const attendees = intent.attendees ? intent.attendees.split(',').map(s => s.trim()).filter(Boolean) : [];
             const result = await calendar.createEvent({
               summary: intent.title, date: intent.date, time: intent.time,
-              duration: intent.duration || '1h', attendees: [], location: '',
+              duration: intent.duration || '1h', attendees, location: intent.location || '',
             });
             await sendReply(chatId, `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`);
             return;

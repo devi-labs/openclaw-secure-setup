@@ -11,13 +11,71 @@ function createCalendarClient({ clientId, clientSecret, refreshToken }) {
   const calendar = google.calendar({ version: 'v3', auth: oauth2 });
 
   function parseDuration(dur) {
-    const match = dur.match(/^(?:(\d+)h)?(?:(\d+)m)?$/);
-    if (!match) return 60;
-    return (parseInt(match[1] || '0', 10) * 60) + parseInt(match[2] || '0', 10);
+    if (!dur) return 60;
+    const s = dur.trim().toLowerCase();
+    // "1h30m", "2h", "30m"
+    const compact = s.match(/^(?:(\d+)\s*h)?(?:(\d+)\s*m)?$/);
+    if (compact && (compact[1] || compact[2])) {
+      return (parseInt(compact[1] || '0', 10) * 60) + parseInt(compact[2] || '0', 10);
+    }
+    // "1.5 hours", "2 hours", "1 hour", "90 minutes", "30 min", "1 hr"
+    const natural = s.match(/^(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)$/);
+    if (natural) {
+      const val = parseFloat(natural[1]);
+      const unit = natural[2];
+      if (unit.startsWith('h')) return Math.round(val * 60);
+      return Math.round(val); // minutes
+    }
+    // "1 hour 30 minutes" / "1h 30min"
+    const combo = s.match(/^(\d+)\s*(?:hours?|hrs?|h)\s+(\d+)\s*(?:minutes?|mins?|m)$/);
+    if (combo) return parseInt(combo[1], 10) * 60 + parseInt(combo[2], 10);
+    return 60;
+  }
+
+  // Extract duration tokens from the front of a string, return { minutes, rest }
+  function extractDuration(str) {
+    const s = str.trim();
+    const patterns = [
+      // "1 hour 30 minutes" / "1h 30min"
+      /^(\d+\s*(?:hours?|hrs?|h)\s+\d+\s*(?:minutes?|mins?|m))\s*(.*)/i,
+      // "1.5 hours", "90 minutes", "1 hour", "30 min", "2 hrs"
+      /^(\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?))\s*(.*)/i,
+      // "1h30m", "2h", "30m"
+      /^(\d+h(?:\d+m)?|\d+m)\s*(.*)/i,
+    ];
+    for (const pat of patterns) {
+      const m = s.match(pat);
+      if (m) return { minutes: parseDuration(m[1]), rest: m[2] };
+    }
+    return { minutes: 60, rest: s };
+  }
+
+  function parseTime(timeStr) {
+    const s = timeStr.trim().toLowerCase();
+    // "14:00", "9:30"
+    const mil = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (mil) return `${mil[1].padStart(2, '0')}:${mil[2]}`;
+    // "2:30pm", "2:30 pm", "11:00am"
+    const full = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
+    if (full) {
+      let h = parseInt(full[1], 10);
+      if (full[3] === 'pm' && h < 12) h += 12;
+      if (full[3] === 'am' && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:${full[2]}`;
+    }
+    // "2pm", "2 pm", "12am"
+    const bare = s.match(/^(\d{1,2})\s*(am|pm)$/);
+    if (bare) {
+      let h = parseInt(bare[1], 10);
+      if (bare[2] === 'pm' && h < 12) h += 12;
+      if (bare[2] === 'am' && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:00`;
+    }
+    return timeStr; // pass through as-is
   }
 
   function resolveDate(dateStr) {
-    const lower = dateStr.toLowerCase();
+    const lower = dateStr.toLowerCase().trim();
     const now = new Date();
     if (lower === 'today') return now.toISOString().split('T')[0];
     if (lower === 'tomorrow') {
@@ -30,6 +88,21 @@ function createCalendarClient({ clientId, clientSecret, refreshToken }) {
       const diff = (dayIdx - now.getDay() + 7) % 7 || 7;
       now.setDate(now.getDate() + diff);
       return now.toISOString().split('T')[0];
+    }
+    // MM/DD/YYYY or MM-DD-YYYY
+    const mdyFull = lower.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+    if (mdyFull) {
+      return `${mdyFull[3]}-${mdyFull[1].padStart(2, '0')}-${mdyFull[2].padStart(2, '0')}`;
+    }
+    // MM/DD or MM-DD (assume current year, or next year if date has passed)
+    const mdShort = lower.match(/^(\d{1,2})[/\-](\d{1,2})$/);
+    if (mdShort) {
+      const month = mdShort[1].padStart(2, '0');
+      const day = mdShort[2].padStart(2, '0');
+      let year = now.getFullYear();
+      const candidate = new Date(`${year}-${month}-${day}T00:00:00`);
+      if (candidate < new Date(now.getFullYear(), now.getMonth(), now.getDate())) year++;
+      return `${year}-${month}-${day}`;
     }
     return dateStr; // assume YYYY-MM-DD
   }
@@ -100,8 +173,9 @@ function createCalendarClient({ clientId, clientSecret, refreshToken }) {
   async function createEvent({ summary, description, date, time, duration, attendees, location }) {
     const dateStr = resolveDate(date);
     const minutes = parseDuration(duration || '1h');
+    const normalizedTime = parseTime(time);
 
-    const startDt = new Date(`${dateStr}T${time}:00`);
+    const startDt = new Date(`${dateStr}T${normalizedTime}:00`);
     const endDt = new Date(startDt.getTime() + minutes * 60 * 1000);
 
     const event = {
@@ -205,7 +279,7 @@ function createCalendarClient({ clientId, clientSecret, refreshToken }) {
     });
   }
 
-  return { listEvents, getEvent, createEvent, updateEvent, deleteEvent, resolveDate, parseDuration, enabled: true };
+  return { listEvents, getEvent, createEvent, updateEvent, deleteEvent, resolveDate, parseDuration, parseTime, extractDuration, enabled: true };
 }
 
 module.exports = { createCalendarClient };

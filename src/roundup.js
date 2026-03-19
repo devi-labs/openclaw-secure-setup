@@ -1,8 +1,30 @@
 'use strict';
 
+const { createTelegramClient } = require('./clients/telegram');
+
 // Helper: parse comma-separated env string into array
 function parseList(s) {
   return (s || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+// Send roundup digest to all active Telegram chats
+async function sendTelegramDigest(config, brain, body, subject) {
+  const tg = createTelegramClient(config.telegram.botToken);
+  if (!tg || !brain) return;
+  try {
+    const chatIds = await brain.loadActiveChats();
+    if (!chatIds.length) return;
+    for (const chatId of chatIds) {
+      try {
+        await tg.sendMessage(chatId, `${subject}\n\n${body}`);
+      } catch (err) {
+        console.error(`[roundup] Telegram send error for chat ${chatId}:`, err?.message || err);
+      }
+    }
+    console.log(`[roundup] Telegram roundup sent to ${chatIds.length} chat(s)`);
+  } catch (err) {
+    console.error('[roundup] Telegram digest error:', err?.message || err);
+  }
 }
 
 // Fetch recent tweets for a handle via X API v2
@@ -94,18 +116,51 @@ async function compileDigest(anthropic, model, sections, kind) {
 // ── Daily Roundup ────────────────────────────────────────────────
 // News topics + Twitter + LinkedIn, sent every day
 
-async function sendDailyRoundup({ config, anthropic, gmail }) {
+async function sendDailyRoundup({ config, anthropic, gmail, calendar, tasks, brain }) {
   const rc = config.roundup;
   const dailyTopics = parseList(rc.dailyTopics);
   const handles = parseList(rc.twitterHandles);
   const linkedinNames = parseList(rc.linkedinNames);
 
-  if (!dailyTopics.length && !handles.length && !linkedinNames.length) return;
-  if (!gmail?.enabled) { console.log('[roundup] Gmail not configured, skipping daily roundup'); return; }
-  if (!rc.emailTo) { console.log('[roundup] ROUNDUP_EMAIL_TO not set, skipping'); return; }
+  const canEmail = gmail?.enabled && rc.emailTo;
+  const canTelegram = config.telegram.botToken && brain;
+  if (!canEmail && !canTelegram) { console.log('[roundup] No delivery method configured, skipping daily roundup'); return; }
 
   console.log('[roundup] Building daily roundup...');
   const sections = [];
+
+  // Today's calendar events
+  if (calendar?.enabled) {
+    try {
+      const events = await calendar.listEvents();
+      if (events.length) {
+        sections.push({
+          heading: '📅 Today\'s Schedule',
+          items: events.map(e => {
+            const start = e.start ? new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+            return `• ${start} — ${e.summary}${e.location ? ` (${e.location})` : ''}`;
+          }),
+        });
+      }
+    } catch (err) {
+      console.error('[roundup] Calendar fetch error:', err?.message || err);
+    }
+  }
+
+  // Open todos
+  if (tasks?.enabled) {
+    try {
+      const items = await tasks.listTasks({ maxResults: 20 });
+      if (items.length) {
+        sections.push({
+          heading: '✅ Open Todos',
+          items: items.map(t => `• ${t.title}${t.due ? ` (due ${t.due.slice(0, 10)})` : ''}`),
+        });
+      }
+    } catch (err) {
+      console.error('[roundup] Tasks fetch error:', err?.message || err);
+    }
+  }
 
   // News
   if (dailyTopics.length) {
@@ -140,7 +195,7 @@ async function sendDailyRoundup({ config, anthropic, gmail }) {
     if (allUpdates.length) sections.push({ heading: '💼 LinkedIn', items: allUpdates });
   }
 
-  if (!sections.length) { console.log('[roundup] No content for daily roundup'); return; }
+  if (!sections.length) { console.log('[roundup] No content for daily roundup'); return null; }
 
   let body;
   if (anthropic) {
@@ -150,20 +205,25 @@ async function sendDailyRoundup({ config, anthropic, gmail }) {
   }
 
   const subject = `OpenClaw Daily — ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`;
-  await gmail.sendEmail({ to: rc.emailTo, subject, body });
-  console.log(`[roundup] Daily roundup sent to ${rc.emailTo}`);
+  if (gmail?.enabled && rc.emailTo) {
+    await gmail.sendEmail({ to: rc.emailTo, subject, body });
+    console.log(`[roundup] Daily roundup sent to ${rc.emailTo}`);
+  }
+  await sendTelegramDigest(config, brain, body, subject);
+  return `${subject}\n\n${body}`;
 }
 
 // ── Weekly Roundup ───────────────────────────────────────────────
 // Deep-dive topics, sent on the configured day (default: Saturday)
 
-async function sendWeeklyRoundup({ config, anthropic, gmail }) {
+async function sendWeeklyRoundup({ config, anthropic, gmail, brain }) {
   const rc = config.roundup;
   const topics = parseList(rc.weeklyTopics);
 
   if (!topics.length) return;
-  if (!gmail?.enabled) { console.log('[roundup] Gmail not configured, skipping weekly roundup'); return; }
-  if (!rc.emailTo) { console.log('[roundup] ROUNDUP_EMAIL_TO not set, skipping'); return; }
+  const canEmail = gmail?.enabled && rc.emailTo;
+  const canTelegram = config.telegram.botToken && brain;
+  if (!canEmail && !canTelegram) { console.log('[roundup] No delivery method configured, skipping weekly roundup'); return; }
 
   console.log('[roundup] Building weekly roundup...');
   const sections = [];
@@ -188,8 +248,11 @@ async function sendWeeklyRoundup({ config, anthropic, gmail }) {
   }
 
   const subject = `OpenClaw Weekly — ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
-  await gmail.sendEmail({ to: rc.emailTo, subject, body });
-  console.log(`[roundup] Weekly roundup sent to ${rc.emailTo}`);
+  if (canEmail) {
+    await gmail.sendEmail({ to: rc.emailTo, subject, body });
+    console.log(`[roundup] Weekly roundup sent to ${rc.emailTo}`);
+  }
+  await sendTelegramDigest(config, brain, body, subject);
 }
 
 // ── Scheduler ────────────────────────────────────────────────────
@@ -198,10 +261,13 @@ const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 
 function startRoundupScheduler(deps) {
   const rc = deps.config.roundup;
-  const hasDaily = parseList(rc.dailyTopics).length || parseList(rc.twitterHandles).length || parseList(rc.linkedinNames).length;
+  const hasNewsContent = parseList(rc.dailyTopics).length || parseList(rc.twitterHandles).length || parseList(rc.linkedinNames).length;
+  const hasPersonalContent = deps.calendar?.enabled || deps.tasks?.enabled || deps.gmail?.enabled;
+  const hasDaily = hasNewsContent || hasPersonalContent;
   const hasWeekly = parseList(rc.weeklyTopics).length;
 
-  if (!rc.emailTo || (!hasDaily && !hasWeekly)) {
+  const hasDelivery = rc.emailTo || deps.config.telegram.botToken;
+  if (!hasDelivery || (!hasDaily && !hasWeekly)) {
     console.log('[roundup] No roundup configured, scheduler inactive');
     return;
   }

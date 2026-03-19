@@ -234,6 +234,24 @@ function createBrain({ storage, bucket, prefix }) {
     await writeJson(objPath, existing);
   }
 
+  async function saveActiveChat(chatId) {
+    const objPath = brainObjectPath(prefix, 'global', 'active-chats');
+    const existing = (await readJson(objPath)) || { chatIds: [] };
+    const chatIds = Array.isArray(existing.chatIds) ? existing.chatIds : [];
+    if (!chatIds.includes(chatId)) {
+      chatIds.push(chatId);
+      existing.chatIds = chatIds;
+      existing.updatedAt = nowIso();
+      await writeJson(objPath, existing);
+    }
+  }
+
+  async function loadActiveChats() {
+    const objPath = brainObjectPath(prefix, 'global', 'active-chats');
+    const data = await readJson(objPath);
+    return Array.isArray(data?.chatIds) ? data.chatIds : [];
+  }
+
   async function recordSkillError(skillName, error) {
     const objPath = brainObjectPath(prefix, 'global', 'skill-errors');
     const existing = (await readJson(objPath)) || { errors: [] };
@@ -265,6 +283,8 @@ function createBrain({ storage, bucket, prefix }) {
     saveSkill,
     deleteSkill,
     recordSkillError,
+    saveActiveChat,
+    loadActiveChats,
   };
 }
 
