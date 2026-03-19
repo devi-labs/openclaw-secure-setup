@@ -204,6 +204,50 @@ function createBrain({ storage, bucket, prefix }) {
     } catch { return []; }
   }
 
+  async function loadSkills() {
+    const objPath = brainObjectPath(prefix, 'global', 'skills');
+    const data = await readJson(objPath);
+    return Array.isArray(data?.skills) ? data.skills : [];
+  }
+
+  async function saveSkill(skill) {
+    const objPath = brainObjectPath(prefix, 'global', 'skills');
+    const existing = (await readJson(objPath)) || { skills: [] };
+    const skills = Array.isArray(existing.skills) ? existing.skills : [];
+    // Replace if same name exists, otherwise append (cap at 50)
+    const idx = skills.findIndex(s => s.name === skill.name);
+    if (idx >= 0) {
+      skills[idx] = skill;
+    } else {
+      skills.push(skill);
+    }
+    existing.skills = skills.slice(-50);
+    existing.updatedAt = nowIso();
+    await writeJson(objPath, existing);
+  }
+
+  async function deleteSkill(skillName) {
+    const objPath = brainObjectPath(prefix, 'global', 'skills');
+    const existing = (await readJson(objPath)) || { skills: [] };
+    existing.skills = (existing.skills || []).filter(s => s.name !== skillName);
+    existing.updatedAt = nowIso();
+    await writeJson(objPath, existing);
+  }
+
+  async function recordSkillError(skillName, error) {
+    const objPath = brainObjectPath(prefix, 'global', 'skill-errors');
+    const existing = (await readJson(objPath)) || { errors: [] };
+    const errors = Array.isArray(existing.errors) ? existing.errors : [];
+    errors.push({
+      skill: skillName,
+      error: clampString(error, 500),
+      at: nowIso(),
+    });
+    existing.errors = errors.slice(-100);
+    existing.updatedAt = nowIso();
+    await writeJson(objPath, existing);
+  }
+
   return {
     enabled,
     threadKeyFromEvent,
@@ -217,6 +261,10 @@ function createBrain({ storage, bucket, prefix }) {
     sanitizePlanForStorage,
     loadSummary,
     saveSummary,
+    loadSkills,
+    saveSkill,
+    deleteSkill,
+    recordSkillError,
   };
 }
 

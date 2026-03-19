@@ -1,8 +1,10 @@
 # OpenClaw
 
-**Your personal AI coding assistant — talk to it on Telegram, and it writes code for you.**
+**Text a task. Get a pull request.** OpenClaw is an AI coding agent you control from Telegram — it clones your repo, writes the code, and opens a PR. No IDE needed.
 
-You describe what you want in plain English. OpenClaw figures out the code changes, makes them, and opens a pull request on GitHub — all from a Telegram chat.
+Powered by Claude. Describe what you want in plain English, and OpenClaw figures out the code changes, makes them, and opens a pull request on GitHub — all from a Telegram chat.
+
+It also learns new skills on the fly. Ask it to do something it doesn't know how to do, and it'll write the code, test it, fix it if it breaks, and remember it for next time.
 
 No coding experience needed to get it running. This guide walks you through every step.
 
@@ -11,19 +13,21 @@ No coding experience needed to get it running. This guide walks you through ever
 ## What Can It Do?
 
 - 🤖 **Write code for you** — Describe a task, get a GitHub pull request
+- 🧠 **Learn new skills** — Ask it anything actionable and it generates, tests, and self-heals code on the fly
 - 💬 **Chat on Telegram** — Just text it like you would a friend
-- 📧 **Manage your email** — Check, search, and send emails through Gmail
+- 📧 **Manage your email** — Check, search, and send emails (auto-humanized so they don't sound like AI)
 - 📅 **Manage your calendar** — View, create, and update events
-- 🧠 **Remembers your conversations** — Picks up where you left off
-- 🔒 **Safe** — Runs in a locked-down sandbox so it can't do anything dangerous
+- ✅ **Todo list** — Add, complete, and manage your Google Tasks
+- 🍽️ **Make reservations** — Book restaurants via OpenTable or have AI call them for you
+- 📰 **Daily & weekly roundups** — Get news, Twitter, and LinkedIn digests emailed automatically
+- 🧠 **Remembers everything** — Conversations, skills, and context persist across sessions
+- 🔒 **Safe** — Sandboxed execution, rate limiting, command denylist, access control
 
 ---
 
-## Before You Start
+## Before You Start — The Essentials
 
-You'll need to sign up for a few free services and grab some keys. Think of these like passwords that let OpenClaw talk to other services on your behalf.
-
-**Don't worry — you only need to do this once.**
+You only need **two things** to get started. Everything else is optional.
 
 ### Step 1: Create a Telegram Bot (required)
 
@@ -48,24 +52,7 @@ This connects OpenClaw to Claude, the AI that does the thinking and coding.
 
 > 💡 Anthropic gives you some free credits to start. After that, usage is pay-as-you-go (typically a few cents per task).
 
-### Step 3: Get a GitHub Token (optional — needed to create pull requests)
-
-This lets OpenClaw push code to your GitHub repositories.
-
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens?type=beta)
-2. Click **Generate new token (classic)**
-3. Give it a name like `openclaw`
-4. Under **Select scopes**, check the box next to **`repo`**
-5. Scroll down and click **Generate token**
-6. Copy the token — it starts with `ghp_`
-
-> 💡 If you skip this step, you can still chat with OpenClaw and ask it questions — it just won't be able to create pull requests.
-
-### Step 4: Set a Joining Code (optional — recommended)
-
-You can set a secret code that people must send before the bot will talk to them. This keeps strangers from using your bot.
-
-You'll set this in your configuration file later — just pick a word or phrase now and remember it.
+**That's all you need.** The rest is optional — add features when you're ready.
 
 ---
 
@@ -112,13 +99,7 @@ TELEGRAM_BOT_TOKEN=paste-your-telegram-token-here
 ANTHROPIC_API_KEY=paste-your-anthropic-key-here
 ```
 
-If you have a GitHub token, add it too:
-
-```
-GITHUB_TOKEN=paste-your-github-token-here
-```
-
-If you want a joining code (recommended), add:
+If you want a joining code to keep strangers out (recommended):
 
 ```
 TELEGRAM_JOIN_CODE=your-secret-code-here
@@ -152,27 +133,20 @@ Open your bot in Telegram and start chatting. Here are some things you can do:
 
 ### Ask it to write code
 
-Send a message like this:
-
 ```
 repo: your-username/your-repo
 task: add a health check endpoint to the express server
 ```
 
-OpenClaw will clone your repo, write the code, and open a pull request. It sends you progress updates along the way.
+### Ask it anything actionable
 
-### Ask it questions
-
-Just type a question like you're texting a friend:
+Just ask — if it requires computation, data processing, or logic, OpenClaw will generate a skill, run it, and remember it:
 
 ```
-What's the difference between let and const in JavaScript?
-```
-
-### Check your email
-
-```
-email check
+convert 72°F to celsius
+what day of the week is december 25 2026
+generate a random 16 character password
+base64 encode "hello world"
 ```
 
 ### Quick reference
@@ -184,12 +158,35 @@ email check
 | `tell me about owner/repo` | Get a summary of a GitHub repo |
 | `summarize https://github.com/.../pull/123` | Summarize a pull request |
 | `email check` | Show recent emails |
-| `email search invoices` | Search your inbox |
-| `email send user@email.com "Subject" Body` | Send an email |
+| `email send user@example.com "Subject" Body` | Send an email (auto-humanized) |
 | `cal` | Show today's calendar events |
+| `cal create "Lunch" 2026-03-20 12:00 1h` | Create a calendar event |
+| `todo list` | Show your todos |
+| `todo add Buy groceries` | Add a todo |
+| `todo done <id>` | Complete a todo |
+| `reserve table for 2 at Nobu on Saturday at 7pm` | Get an OpenTable booking link |
+| `call Nobu and reserve a table for 2 on Saturday at 7pm` | AI calls the restaurant for you |
+| `skills list` | See all learned skills |
+| `skills delete <name>` | Remove a learned skill |
 | `brain status` | Check if memory is working |
 | `brain reset` | Clear conversation memory |
 | `self destruct` | Shut down the VM |
+
+---
+
+## Self-Healing Skill System
+
+OpenClaw learns new skills on the fly using a self-healing architecture inspired by [Voyager](https://voyager.minedojo.org/) and [Reflexion](https://arxiv.org/abs/2303.11366):
+
+1. **Classify** — Claude decides if your message needs code or is just conversation
+2. **Match** — Checks the skill library for an existing skill that fits
+3. **Generate** — If no match, Claude writes a new JavaScript function
+4. **Execute** — Runs the code in a sandboxed VM (no file system, no network abuse, 15s timeout)
+5. **Verify** — Claude checks if the output actually answers your question (Reflexion pattern)
+6. **Self-heal** — If execution or verification fails, the error is fed back to Claude to fix the code (up to 3 attempts). Each failed attempt is remembered so mistakes aren't repeated
+7. **Persist** — Working skills are saved to the brain and reused on similar future requests
+
+Skills are stored in the brain (local filesystem + optional GCS backup) and survive restarts. You can manage them with `skills list` and `skills delete <name>`.
 
 ---
 
@@ -203,71 +200,17 @@ This puts OpenClaw on a Google Cloud VM that's always on. You'll need a [Google 
 
 ```bash
 bash deploy-gce.sh .env
-```
-
-Then apply your settings:
-
-```bash
 bash setup.sh .env
 ```
 
-The script handles everything — building, deploying, setting up a static IP, and opening the right ports.
-
 ### Option B: Run Locally with Docker
-
-If you have [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) installed:
 
 ```bash
 docker build -t openclaw:local .
 docker run -d --name openclaw --restart=always --env-file .env -p 8080:8080 openclaw:local
 ```
 
-This keeps it running in the background, even if you close your terminal. It auto-restarts if your computer reboots.
-
-To check if it's running:
-
-```bash
-docker logs -f openclaw
-```
-
-To stop it:
-
-```bash
-docker rm -f openclaw
-```
-
----
-
-## Setting Up Gmail (Optional)
-
-If you want OpenClaw to check and send emails for you, this takes about 10 minutes:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one)
-2. Search for **Gmail API** in the search bar and click **Enable**
-3. Go to **APIs & Services → OAuth consent screen**
-   - Choose **External**
-   - Fill in the app name (anything — e.g. "OpenClaw")
-   - Add your email as a **test user**
-4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**
-   - Application type: **Web application**
-   - Under **Authorized redirect URIs**, add: `https://developers.google.com/oauthplayground`
-   - Click **Create** and copy the **Client ID** and **Client Secret**
-5. Go to [OAuth Playground](https://developers.google.com/oauthplayground/)
-   - Click the ⚙️ gear icon → check **"Use your own OAuth credentials"** → paste your Client ID and Secret
-   - In the left panel, find and select `https://mail.google.com/`
-   - Click **Authorize APIs** → sign in with your Google account
-   - Click **Exchange authorization code for tokens** → copy the **Refresh Token**
-
-Add all four values to your `.env` file:
-
-```
-GMAIL_CLIENT_ID=your-client-id
-GMAIL_CLIENT_SECRET=your-client-secret
-GMAIL_REFRESH_TOKEN=your-refresh-token
-GMAIL_USER_EMAIL=you@gmail.com
-```
-
-Restart OpenClaw and you're good to go.
+To check logs: `docker logs -f openclaw` · To stop: `docker rm -f openclaw`
 
 ---
 
@@ -280,6 +223,7 @@ Restart OpenClaw and you're good to go.
 | "ANTHROPIC_API_KEY missing" | Make sure you added your Anthropic key to the `.env` file |
 | "GITHUB_TOKEN missing" | Add your GitHub token to `.env` (needed for creating PRs) |
 | PR creation fails | Send `brain last error` to see what went wrong |
+| "Google Tasks not configured" | Re-authorize with the Tasks scope (see Google APIs section below) |
 | Bot is slow to respond | Claude is thinking — complex tasks can take 30–60 seconds |
 | Container keeps restarting | Check logs: `docker logs openclaw --tail 50` |
 
@@ -287,13 +231,180 @@ Restart OpenClaw and you're good to go.
 
 ## Security
 
-OpenClaw is designed to be safe:
-
-- **Dangerous commands are blocked** — It can't delete files, download things, or access your system
-- **Sandboxed** — Code runs in an isolated container with no special permissions
+- **Command denylist** — `rm`, `curl`, `wget`, `sudo`, `docker`, and 20+ other dangerous commands are blocked
+- **VM sandbox** — Generated skills run in Node.js `vm` with no `require`, `fs`, `process`, or `eval`
 - **Rate limited** — Max 6 requests per 30 seconds per user to prevent abuse
 - **Access control** — Use a joining code and/or user ID allowlist to restrict who can use it
-- **Secrets are protected** — Your API keys are never exposed to the AI
+- **Emails are humanized** — Outgoing emails are rewritten so they don't sound AI-generated
+- **Secrets stay local** — API keys are read from env vars and never exposed to generated code or AI prompts
+- **Temp cleanup** — Cloned repos are deleted after PR creation to prevent disk exhaustion
+
+---
+
+# Optional Features
+
+Everything below is optional. Add what you want, skip what you don't.
+
+---
+
+## GitHub Pull Requests
+
+Lets OpenClaw push code and create pull requests on your repos.
+
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens?type=beta)
+2. Click **Generate new token (classic)** → name it `openclaw` → check **`repo`** scope → generate
+3. Add to `.env`:
+
+```
+GITHUB_TOKEN=ghp_your-token-here
+```
+
+---
+
+## Google APIs — Gmail, Calendar, and Todos
+
+These three features share the same credentials. Set up once, and you get all three.
+
+### What you'll enable
+
+| Feature | Google API to enable | OAuth scope |
+|---|---|---|
+| Email (check, search, send) | Gmail API | `https://mail.google.com/` |
+| Calendar (view, create, update) | Google Calendar API | `https://www.googleapis.com/auth/calendar` |
+| Todos (list, add, complete) | Google Tasks API | `https://www.googleapis.com/auth/tasks` |
+
+### Setup (about 10 minutes)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select one)
+
+2. **Enable all three APIs** — search for each in the search bar and click **Enable**:
+   - Gmail API
+   - Google Calendar API
+   - Tasks API
+
+3. **Set up OAuth consent screen**:
+   - Go to **APIs & Services → OAuth consent screen**
+   - Choose **External**
+   - Fill in the app name (e.g. "OpenClaw")
+   - Add your email as a **test user**
+
+4. **Create OAuth credentials**:
+   - Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+   - Application type: **Web application**
+   - Under **Authorized redirect URIs**, add: `https://developers.google.com/oauthplayground`
+   - Click **Create** → copy the **Client ID** and **Client Secret**
+
+5. **Get a refresh token**:
+   - Go to [OAuth Playground](https://developers.google.com/oauthplayground/)
+   - Click the ⚙️ gear icon → check **"Use your own OAuth credentials"** → paste your Client ID and Secret
+   - In the left panel, select **all three scopes**:
+     - `https://mail.google.com/`
+     - `https://www.googleapis.com/auth/calendar`
+     - `https://www.googleapis.com/auth/tasks`
+   - Click **Authorize APIs** → sign in with your Google account
+   - Click **Exchange authorization code for tokens** → copy the **Refresh Token**
+
+6. **Add to `.env`**:
+
+```
+GMAIL_CLIENT_ID=your-client-id
+GMAIL_CLIENT_SECRET=your-client-secret
+GMAIL_REFRESH_TOKEN=your-refresh-token
+GMAIL_USER_EMAIL=you@gmail.com
+```
+
+Restart OpenClaw. You now have email, calendar, and todos working.
+
+> 💡 If you already set up Gmail before and want to add calendar/todos, you just need to re-do step 5 with all three scopes selected, then update your refresh token in `.env`.
+
+---
+
+## Roundup Emails
+
+OpenClaw sends two automated email digests:
+
+- **Daily** — News topics + Twitter + LinkedIn, sent every morning
+- **Weekly** — Deep-dive topics, sent on Saturday (configurable)
+
+Add to `.env`:
+
+```
+ROUNDUP_EMAIL_TO=you@email.com
+ROUNDUP_EMAIL_FROM=you@gmail.com
+
+# Daily — news topics, Twitter, LinkedIn
+ROUNDUP_DAILY_TOPICS=AI,startups,cybersecurity
+ROUNDUP_TWITTER_HANDLES=elonmusk,naval,paulg
+ROUNDUP_LINKEDIN_NAMES=satya-nadella,reid-hoffman
+
+# Weekly — deep-dive topics (sent on Saturday)
+ROUNDUP_WEEKLY_TOPICS=machine learning,venture capital
+ROUNDUP_WEEKLY_DAY=saturday
+```
+
+**Extra keys needed:**
+
+| Key | What | Required? |
+|---|---|---|
+| `X_BEARER_TOKEN` | For Twitter. Get free at [developer.x.com](https://developer.x.com) | Only for Twitter |
+| Gmail OAuth | For sending the email | Yes (see Google APIs above) |
+
+News and LinkedIn work automatically with no API keys (uses Google News RSS).
+
+---
+
+## AI Restaurant Reservations
+
+Two ways to book:
+
+- **`reserve`** — Generates an OpenTable booking link (no API keys needed)
+- **`call`** — AI calls the restaurant and makes the reservation for you
+
+For AI phone calls, add to `.env`:
+
+```
+BLAND_API_KEY=your-bland-api-key
+RESERVATION_CALLER_NAME=Your Name
+```
+
+Get a Bland.ai key at [app.bland.ai](https://app.bland.ai).
+
+**Optional:** Add `GOOGLE_PLACES_API_KEY` so OpenClaw can automatically look up restaurant phone numbers. Otherwise, include the number in your message: `call +13125551234 and reserve a table for 2 at Nobu on Saturday at 7pm`
+
+---
+
+## Architecture
+
+```
+server.js                    # Entry point
+src/
+├── telegram.js              # Telegram message handler + command router
+├── config.js                # Environment config
+├── skills.js                # Self-healing skill generator (Voyager/Reflexion)
+├── reservations.js          # Restaurant booking (OpenTable + Bland.ai)
+├── roundup.js               # Weekly digest emails (Twitter/LinkedIn/news)
+├── brain/
+│   └── brain.js             # Persistent memory (local fs + GCS backup)
+├── agent/
+│   ├── sandbox.js           # Sandboxed PR creation pipeline
+│   └── plan.js              # Claude-powered code planner
+├── clients/
+│   ├── telegram.js          # Telegram polling client
+│   ├── anthropic.js         # Claude client
+│   ├── openai.js            # OpenAI client
+│   ├── github.js            # Octokit wrapper
+│   ├── gcp.js               # GCS client
+│   ├── gmail.js             # Gmail client
+│   ├── calendar.js          # Google Calendar client
+│   └── tasks.js             # Google Tasks client
+├── github/
+│   ├── repo.js              # Repo info + README fetching
+│   └── pr.js                # PR summarization
+└── util/
+    ├── proc.js              # Command runner + denylist
+    ├── parse.js             # URL/task parsers
+    └── rateLimit.js         # Per-user rate limiting
+```
 
 ---
 

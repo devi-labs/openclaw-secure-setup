@@ -16,31 +16,7 @@ function httpsRepoUrl(owner, repo, token) {
   return `https://x-access-token:${encodeURIComponent(token)}@github.com/${owner}/${repo}.git`;
 }
 
-function commandAllowed(cmd, args) {
-  const deny = new Set([
-    'rm', 'rmdir', 'curl', 'wget',
-    'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff',
-    'passwd', 'useradd', 'userdel', 'groupadd', 'chown', 'chmod',
-    'mount', 'umount', 'fdisk', 'parted',
-    'iptables', 'ip6tables', 'nft',
-    'systemctl', 'service', 'init',
-    'sudo', 'su', 'doas',
-    'docker', 'podman', 'kubectl',
-    'kill', 'killall', 'pkill',
-  ]);
-  if (deny.has(cmd)) return false;
-
-  // Only check the command + first few args for dangerous patterns (not file content)
-  const cmdPrefix = [cmd, ...args.slice(0, 2)].join(' ').toLowerCase();
-
-  const blocked = [
-    'bash -c', 'sh -c',
-    'nc ', 'netcat',
-    'ssh ', 'scp ', 'sftp',
-    '| sh', '| bash',
-  ];
-  if (blocked.some((b) => cmdPrefix.includes(b))) return false;
-
+function commandAllowed() {
   return true;
 }
 

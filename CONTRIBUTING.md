@@ -7,8 +7,8 @@ Thanks for your interest in contributing! This doc covers how to get set up and 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/openclaw.git
-cd openclaw
+git clone https://github.com/devi-labs/openclaw-secure-setup.git
+cd openclaw-secure-setup
 npm install
 ```
 
@@ -21,9 +21,11 @@ cp .env.example .env
 ```
 
 Required for local dev:
-- `TELEGRAM_BOT_TOKEN` - Get from [BotFather](https://t.me/botfather)
-- `ANTHROPIC_API_KEY` - Claude API key
-- `GITHUB_TOKEN` - Personal access token with `repo` scope
+- `TELEGRAM_BOT_TOKEN` — Get from [BotFather](https://t.me/botfather)
+- `ANTHROPIC_API_KEY` — Claude API key
+
+Optional:
+- `GITHUB_TOKEN` — Personal access token with `repo` scope (needed for PR creation)
 
 ### 3. Run locally
 
@@ -33,31 +35,38 @@ node server.js
 
 You should see:
 ```
-⚡️ OpenClaw Telegram bot running
-Claude: enabled | GitHub: enabled | ...
+⚡️ OpenClaw Telegram server running on port 8080 (polling mode)
+Claude: enabled | GitHub: enabled | Brain: enabled | Allowed users: (any)
 ```
 
-### 4. Test in Telegram
+### 4. Run tests
 
-Send a message to your bot in Telegram:
+```bash
+npm test
 ```
-help
-```
+
+All tests use Node.js built-in test runner — no extra dependencies needed.
 
 ## Project Structure
 
 ```
-.
-├── server.js              # Entry point
-└── src/
-    ├── telegram.js        # Main Telegram event handler
-    ├── config.js          # Environment config
-    ├── http.js            # Health check server
-    ├── clients/           # API client factories
-    ├── brain/             # State management (GCS)
-    ├── agent/             # Sandbox planner & executor
-    ├── github/            # GitHub integrations
-    └── util/              # Helpers
+server.js                    # Entry point
+src/
+├── telegram.js              # Telegram message handler + command router
+├── config.js                # Environment config
+├── skills.js                # Self-healing skill generator
+├── reservations.js          # Restaurant booking
+├── roundup.js               # Weekly digest emails
+├── brain/brain.js           # Persistent memory (local fs + GCS backup)
+├── agent/                   # Sandbox planner & executor
+├── clients/                 # API client factories
+├── github/                  # GitHub integrations
+└── util/                    # Helpers (parse, proc, rateLimit)
+test/
+├── brain.test.js
+├── parse.test.js
+├── plan.test.js
+└── skills.test.js
 ```
 
 ## Code Style
@@ -71,27 +80,19 @@ help
 
 ## Pull Request Guidelines
 
-1. **One feature per PR** - Keep changes focused
-2. **Test locally first** - Ensure the bot starts and responds
-3. **Update README** if adding user-facing features
-4. **No secrets in code** - Use env vars, never hardcode tokens
-5. **Check for smart quotes** - Use regular quotes/apostrophes only
-
-## Testing
-
-Currently there are no automated tests. When adding new features:
-
-1. Test manually in Telegram
-2. Check error handling with `@OpenClaw brain last error`
-3. Verify logs with `podman logs openclaw` or `gcloud run services logs read openclaw`
+1. **One feature per PR** — Keep changes focused
+2. **Run tests** — `npm test` should pass with no failures
+3. **Test locally** — Ensure the bot starts and responds in Telegram
+4. **Update README** if adding user-facing features
+5. **No secrets in code** — Use env vars, never hardcode tokens
 
 ## Adding New Commands
 
-To add a new command:
+To add a new command to the Telegram handler:
 
-1. Add the handler in `src/telegram.js`
+1. Add the handler in `src/telegram.js` inside `handleMessage()`
 2. Keep the handler concise; extract complex logic to separate modules
-3. Update help text in `helpText()` function
+3. Update help text in the `helpText()` function
 4. Add error handling and brain error recording
 
 Example:
@@ -100,15 +101,15 @@ Example:
 if (lower.startsWith('my command')) {
   try {
     // Your logic here
-    await say({ text: 'Response', ...reply });
+    await sendReply(chatId, 'Response');
     return;
-  } catch (e) {
-    console.error('My command error:', e?.message || e);
-    await brain.recordThreadError(threadKey, { 
-      lastError: e?.message, 
-      lastErrorContext: 'mycommand' 
+  } catch (err) {
+    logError('My command error:', err?.message || err);
+    await brain.recordThreadError(threadKey, {
+      lastError: err?.message,
+      lastErrorContext: 'mycommand',
     });
-    await say({ text: `Error: ${e?.message}`, ...reply });
+    await sendReply(chatId, `❌ Error: ${err?.message}`);
     return;
   }
 }
@@ -116,28 +117,23 @@ if (lower.startsWith('my command')) {
 
 ## Adding New Sandbox Commands
 
-To allow a new command in the sandbox (e.g., `python`, `pip`):
+The sandbox uses a denylist (not allowlist) — see `commandAllowed()` in `src/util/proc.js`. Commands like `rm`, `curl`, `wget`, `sudo`, and `docker` are blocked.
 
-1. Add to the allowlist in `src/util/proc.js`:
-   ```javascript
-   const allow = new Set(['git', 'npm', 'node', 'python', 'pip']);
-   ```
+To modify the denylist:
 
-2. Update the blocked patterns if needed (e.g., block `python -c` with shell injection)
-
-3. Update the planner prompt in `src/agent/plan.js` to mention the new commands
-
-4. Test thoroughly to ensure no security issues
+1. Edit the `deny` set in `src/util/proc.js`
+2. Update the planner prompt in `src/agent/plan.js` to match
+3. Test thoroughly to ensure no security issues
 
 ## Security Considerations
 
 When contributing, please ensure:
 
-- **No arbitrary command execution** - Only allow safe, audited commands
-- **Input sanitization** - Don't trust user input in commands/prompts
-- **Secret protection** - Never log or expose tokens
-- **Sandbox isolation** - Keep the sandbox locked down (no network exfil)
-- **Rate limiting** - Prevent abuse
+- **No arbitrary command execution** — Only safe commands should reach the sandbox
+- **Input sanitization** — Don't trust user input in commands or prompts
+- **Secret protection** — Never log or expose tokens
+- **Sandbox isolation** — Generated skills run in `vm` with no `require`, `fs`, or `process`
+- **Rate limiting** — Prevent abuse
 
 ## Questions?
 

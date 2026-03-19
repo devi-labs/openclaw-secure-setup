@@ -13,6 +13,11 @@ const {
 const { sandboxFastPR } = require('./agent/sandbox');
 const { fetchRepoAndReadme } = require('./github/repo');
 const { summarizePullRequest } = require('./github/pr');
+const {
+  parseReservationRequest, buildOpenTableUrl, buildGoogleMapsUrl, formatReservationReply,
+  lookupRestaurantPhone, makeReservationCall, waitForCallCompletion, formatCallResult,
+} = require('./reservations');
+const { runSkillPipeline } = require('./skills');
 
 function ts() {
   return new Date().toISOString().replace('T', ' ').replace('Z', '');
@@ -50,6 +55,28 @@ async function stopGceInstance({ project, zone, instance }) {
   }
 }
 
+async function humanize(anthropic, model, text) {
+  try {
+    const resp = await anthropic.messages.create({
+      model,
+      max_tokens: 1000,
+      system:
+        'Rewrite this email to sound like a real person wrote it. ' +
+        'Keep the same meaning, tone, and length. ' +
+        'No filler phrases like "I hope this email finds you well." ' +
+        'No bullet points unless the original had them. ' +
+        'Use natural contractions (I\'m, don\'t, we\'ll). ' +
+        'Vary sentence length. Be direct. ' +
+        'Do NOT add a sign-off or greeting unless the original had one. ' +
+        'Return ONLY the rewritten text, nothing else.',
+      messages: [{ role: 'user', content: text }],
+    });
+    return resp.content?.find(c => c.type === 'text')?.text?.trim() || text;
+  } catch {
+    return text;
+  }
+}
+
 function helpText() {
   return [
     'OpenClaw can help with:',
@@ -70,11 +97,18 @@ function helpText() {
     '',
     '• Calendar: cal / cal list <date> / cal get <id> / cal create "Title" <date> <time> <duration> [attendees] / cal update <id> <field=value> / cal delete <id>',
     '',
-    '• General questions: just ask!',
+    '• Reservations: reserve table for 2 at Nobu in Chicago on Saturday at 7pm',
+    '• AI phone call: call Nobu Chicago and reserve a table for 2 on Saturday at 7pm',
+    '',
+    '• Todos: todo list / todo add <task> / todo done <id> / todo delete <id>',
+    '',
+    '• Skills: skills list / skills delete <name>',
+    '',
+    '• General questions: just ask — I\'ll learn new skills on the fly!',
   ].join('\n');
 }
 
-async function startTelegramApp({ config, anthropic, openai, octokit, storage, brain, gmail, calendar }) {
+async function startTelegramApp({ config, anthropic, openai, octokit, storage, brain, gmail, calendar, tasks }) {
   const app = express();
   app.use(express.json());
 
@@ -419,7 +453,11 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
             await sendReply(chatId, 'Usage: email send user@email.com "Subject" Body text here');
             return;
           }
-          await gmail.sendEmail({ to: sendMatch[1], subject: sendMatch[2], body: sendMatch[3] });
+          let body = sendMatch[3];
+          if (anthropic) {
+            body = await humanize(anthropic, config.anthropic.model, body);
+          }
+          await gmail.sendEmail({ to: sendMatch[1], subject: sendMatch[2], body });
           await sendReply(chatId, `✅ Email sent to ${sendMatch[1]}`);
           return;
         }
@@ -427,6 +465,189 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         await sendReply(chatId,
           'Email commands:\n• email check\n• email search <query>\n• email read <id>\n• email send user@email.com "Subject" Body'
         );
+        return;
+      }
+
+      // Reservations — "call" makes a phone call, "reserve/book" gives OpenTable link
+      if (lower.startsWith('call') && /\breserv|table|dinner|lunch|brunch|book/i.test(lower)) {
+        if (!anthropic) {
+          await sendReply(chatId, 'Claude not configured (ANTHROPIC_API_KEY missing).');
+          return;
+        }
+        const rc = config.reservations;
+        if (!rc.blandApiKey) {
+          await sendReply(chatId, 'Phone calls not configured (BLAND_API_KEY missing). Try "reserve" instead for an OpenTable link.');
+          return;
+        }
+
+        await sendReply(chatId, '🍽️ Parsing your request...');
+        const details = await parseReservationRequest(anthropic, config.anthropic.model, messageBody);
+        if (!details || !details.restaurant) {
+          await sendReply(chatId, 'I couldn\'t parse that. Try:\ncall Nobu Chicago and reserve a table for 2 on Saturday at 7pm');
+          return;
+        }
+        if (!details.date || !details.time) {
+          await sendReply(chatId, `I found "${details.restaurant}" but need a date and time. Try:\ncall ${details.restaurant} and reserve for ${details.partySize || 2} on Saturday at 7pm`);
+          return;
+        }
+
+        // Find phone number: from message, then Google Places, then ask user
+        let phone = details.phone;
+        if (!phone && rc.placesApiKey) {
+          await sendReply(chatId, `📞 Looking up ${details.restaurant}...`);
+          const place = await lookupRestaurantPhone(rc.placesApiKey, details.restaurant, details.city);
+          if (place?.phone) {
+            phone = place.phone;
+            await sendReply(chatId, `Found: ${place.name}\n${place.address}\n📞 ${place.phone}`);
+          }
+        }
+        if (!phone) {
+          await sendReply(chatId, `I couldn't find a phone number for ${details.restaurant}. Please include it:\ncall +1234567890 and reserve a table for 2 at ${details.restaurant} on ${details.date} at ${details.time}`);
+          return;
+        }
+
+        details.phone = phone;
+        await sendReply(chatId, `📞 Calling ${details.restaurant} at ${phone}...\nThis may take a minute or two.`);
+
+        try {
+          const callId = await makeReservationCall(rc.blandApiKey, {
+            phone,
+            restaurant: details.restaurant,
+            date: details.date,
+            time: details.time,
+            partySize: details.partySize,
+            callerName: rc.callerName,
+          });
+
+          await sendReply(chatId, '📞 Call in progress...');
+          const result = await waitForCallCompletion(rc.blandApiKey, callId);
+          await sendReply(chatId, formatCallResult(details, result));
+        } catch (err) {
+          logError('Reservation call error:', err?.message || err);
+          await sendReply(chatId, `❌ Call failed: ${(err?.message || 'unknown error').slice(0, 200)}`);
+        }
+        return;
+      }
+
+      if (lower.startsWith('reserve') || lower.startsWith('book') || lower.startsWith('reservation')) {
+        if (!anthropic) {
+          await sendReply(chatId, 'Claude not configured (ANTHROPIC_API_KEY missing).');
+          return;
+        }
+        await sendReply(chatId, '🍽️ Finding that restaurant...');
+        const details = await parseReservationRequest(anthropic, config.anthropic.model, messageBody);
+        if (!details || !details.restaurant) {
+          await sendReply(chatId, 'I couldn\'t parse that. Try:\nreserve table for 2 at Nobu in Chicago on Saturday at 7pm');
+          return;
+        }
+        if (!details.date || !details.time) {
+          await sendReply(chatId, `I found "${details.restaurant}" but need a date and time. Try:\nreserve ${details.restaurant} for ${details.partySize || 2} on Saturday at 7pm`);
+          return;
+        }
+        const openTableUrl = buildOpenTableUrl(details);
+        const mapsUrl = buildGoogleMapsUrl(details);
+        await sendReply(chatId, formatReservationReply(details, openTableUrl, mapsUrl));
+        return;
+      }
+
+      // Todo commands (Google Tasks)
+      if (lower.startsWith('todo')) {
+        if (!tasks?.enabled) {
+          await sendReply(chatId, 'Google Tasks not configured. Set up Gmail OAuth with the Tasks scope.');
+          return;
+        }
+
+        const todoCmd = lower.replace(/^todo\s*/, '').trim();
+        const todoCmdRaw = messageBody.replace(/^todo\s*/i, '').trim();
+
+        // Resolve a user-provided ID: if it's a small number, look up the real
+        // Google Task ID from the last listed items saved in thread state.
+        async function resolveTodoId(input) {
+          const num = parseInt(input, 10);
+          if (!isNaN(num) && String(num) === input && num >= 1) {
+            const state = await brain.loadThread(threadKey);
+            const map = state?.todoIdMap;
+            if (map && map[num]) return map[num];
+          }
+          return input; // fall back to raw ID
+        }
+
+        if (todoCmd === '' || todoCmd === 'list' || todoCmd === 'show') {
+          const items = await tasks.listTasks();
+          if (!items.length) {
+            await sendReply(chatId, '✅ No todos! You\'re all caught up.');
+            return;
+          }
+          // Save number→ID mapping so user can say "todo done 2"
+          const todoIdMap = {};
+          items.forEach((t, i) => { todoIdMap[i + 1] = t.id; });
+          await brain.saveThread(threadKey, { todoIdMap });
+
+          const lines = items.map((t, i) =>
+            `${i + 1}. ${t.title}${t.due ? ` (due ${t.due.slice(0, 10)})` : ''}${t.notes ? `\n   ${t.notes.slice(0, 100)}` : ''}`
+          );
+          await sendReply(chatId, `📋 Todos:\n\n${lines.join('\n\n')}`);
+          return;
+        }
+
+        if (todoCmd.startsWith('add ')) {
+          const title = todoCmdRaw.replace(/^add\s*/i, '').trim();
+          if (!title) {
+            await sendReply(chatId, 'Usage: todo add Buy groceries');
+            return;
+          }
+          const result = await tasks.addTask({ title });
+          await sendReply(chatId, `✅ Added: ${result.title}`);
+          return;
+        }
+
+        if (todoCmd.startsWith('done ')) {
+          const input = todoCmd.replace(/^done\s*/, '').trim();
+          const taskId = await resolveTodoId(input);
+          const result = await tasks.completeTask(taskId);
+          await sendReply(chatId, `✅ Completed: ${result.title}`);
+          return;
+        }
+
+        if (todoCmd.startsWith('delete ') || todoCmd.startsWith('remove ')) {
+          const input = todoCmd.replace(/^(?:delete|remove)\s*/, '').trim();
+          const taskId = await resolveTodoId(input);
+          await tasks.deleteTask(taskId);
+          await sendReply(chatId, '✅ Todo deleted.');
+          return;
+        }
+
+        await sendReply(chatId,
+          'Todo commands:\n• todo list\n• todo add <task>\n• todo done <id>\n• todo delete <id>'
+        );
+        return;
+      }
+
+      // Skills management
+      if (lower.startsWith('skills') || lower === 'skill list') {
+        const skillCmd = lower.replace(/^skills?\s*/, '').trim();
+
+        if (skillCmd === '' || skillCmd === 'list' || skillCmd === 'show') {
+          const skills = await brain.loadSkills();
+          if (!skills.length) {
+            await sendReply(chatId, '🧠 No learned skills yet. Just ask me to do something and I\'ll learn!');
+            return;
+          }
+          const lines = skills.map((s, i) =>
+            `${i + 1}. ${s.name}\n   ${s.description}${s.successCount ? ` (used ${s.successCount}x)` : ''}`
+          );
+          await sendReply(chatId, `🧠 Learned skills:\n\n${lines.join('\n\n')}`);
+          return;
+        }
+
+        if (skillCmd.startsWith('delete ') || skillCmd.startsWith('remove ')) {
+          const name = skillCmd.replace(/^(?:delete|remove)\s*/, '').trim();
+          await brain.deleteSkill(name);
+          await sendReply(chatId, `✅ Skill "${name}" deleted.`);
+          return;
+        }
+
+        await sendReply(chatId, 'Skill commands:\n• skills list\n• skills delete <name>');
         return;
       }
 
@@ -525,24 +746,149 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         return;
       }
 
-      // Claude general response fallback
+      // ── Natural language intent router ─────────────────────────────
+      // If the message didn't match any rigid command, ask Claude to
+      // classify it as a built-in action before falling through to skills/chat.
+      if (anthropic) {
+        try {
+          const intentResp = await anthropic.messages.create({
+            model: config.anthropic.model,
+            max_tokens: 300,
+            system:
+              'You route natural-language messages to built-in commands for a Telegram bot. ' +
+              'Return ONLY valid JSON. Pick the matching intent or return {"intent":"none"}.\n\n' +
+              'Intents:\n' +
+              '• {"intent":"email_check"} — user wants to see inbox/recent emails\n' +
+              '• {"intent":"email_search","query":"search terms"} — search emails\n' +
+              '• {"intent":"email_send","to":"addr","subject":"subj","body":"text"} — send an email\n' +
+              '• {"intent":"todo_list"} — list todos\n' +
+              '• {"intent":"todo_add","title":"task text"} — add a todo\n' +
+              '• {"intent":"todo_done","index":"number"} — complete a todo by its list number\n' +
+              '• {"intent":"todo_delete","index":"number"} — delete a todo by its list number\n' +
+              '• {"intent":"cal_list","date":"date or empty"} — list calendar events\n' +
+              '• {"intent":"cal_create","title":"t","date":"d","time":"t","duration":"d"} — create event\n' +
+              '• {"intent":"none"} — doesn\'t match any built-in action',
+            messages: [{ role: 'user', content: messageBody }],
+          });
+          const intentRaw = intentResp.content?.find(c => c.type === 'text')?.text?.trim() || '';
+          const intent = JSON.parse(intentRaw);
+
+          if (intent.intent === 'email_check' && gmail) {
+            const msgs = await gmail.listMessages({ maxResults: 5 });
+            if (!msgs.length) { await sendReply(chatId, '📭 No recent emails.'); return; }
+            const lines = msgs.map((m, i) => `${i + 1}. ${m.from.slice(0, 40)}\n   ${m.subject}\n   ${m.date}`);
+            await sendReply(chatId, `📬 Recent emails:\n\n${lines.join('\n\n')}`);
+            return;
+          }
+          if (intent.intent === 'email_search' && gmail && intent.query) {
+            const msgs = await gmail.listMessages({ query: intent.query, maxResults: 5 });
+            if (!msgs.length) { await sendReply(chatId, `No emails found for: ${intent.query}`); return; }
+            const lines = msgs.map((m, i) => `${i + 1}. ${m.from.slice(0, 40)}\n   ${m.subject}`);
+            await sendReply(chatId, `📬 Results for "${intent.query}":\n\n${lines.join('\n\n')}`);
+            return;
+          }
+          if (intent.intent === 'email_send' && gmail && intent.to && intent.subject && intent.body) {
+            let body = intent.body;
+            body = await humanize(anthropic, config.anthropic.model, body);
+            await gmail.sendEmail({ to: intent.to, subject: intent.subject, body });
+            await sendReply(chatId, `✅ Email sent to ${intent.to}`);
+            return;
+          }
+          if (intent.intent === 'todo_list' && tasks?.enabled) {
+            const items = await tasks.listTasks();
+            if (!items.length) { await sendReply(chatId, '✅ No todos! You\'re all caught up.'); return; }
+            const todoIdMap = {};
+            items.forEach((t, i) => { todoIdMap[i + 1] = t.id; });
+            await brain.saveThread(threadKey, { todoIdMap });
+            const lines = items.map((t, i) => `${i + 1}. ${t.title}${t.due ? ` (due ${t.due.slice(0, 10)})` : ''}`);
+            await sendReply(chatId, `📋 Todos:\n\n${lines.join('\n\n')}`);
+            return;
+          }
+          if (intent.intent === 'todo_add' && tasks?.enabled && intent.title) {
+            const result = await tasks.addTask({ title: intent.title });
+            await sendReply(chatId, `✅ Added: ${result.title}`);
+            return;
+          }
+          if ((intent.intent === 'todo_done' || intent.intent === 'todo_delete') && tasks?.enabled && intent.index) {
+            const num = parseInt(intent.index, 10);
+            let taskId = intent.index;
+            if (!isNaN(num) && num >= 1) {
+              const state = await brain.loadThread(threadKey);
+              if (state?.todoIdMap?.[num]) taskId = state.todoIdMap[num];
+            }
+            if (intent.intent === 'todo_done') {
+              const result = await tasks.completeTask(taskId);
+              await sendReply(chatId, `✅ Completed: ${result.title}`);
+            } else {
+              await tasks.deleteTask(taskId);
+              await sendReply(chatId, '✅ Todo deleted.');
+            }
+            return;
+          }
+          if (intent.intent === 'cal_list' && calendar) {
+            let events;
+            if (intent.date && intent.date !== '') {
+              const dateStr = calendar.resolveDate(intent.date);
+              const timeMin = new Date(`${dateStr}T00:00:00`).toISOString();
+              const timeMax = new Date(`${dateStr}T23:59:59`).toISOString();
+              events = await calendar.listEvents({ timeMin, timeMax });
+            } else {
+              events = await calendar.listEvents();
+            }
+            if (!events.length) { await sendReply(chatId, '📅 No events found.'); return; }
+            await sendReply(chatId, `📅 Events:\n\n${events.map(e => e.formatted).join('\n\n')}`);
+            return;
+          }
+          if (intent.intent === 'cal_create' && calendar && intent.title && intent.date && intent.time) {
+            const result = await calendar.createEvent({
+              summary: intent.title, date: intent.date, time: intent.time,
+              duration: intent.duration || '1h', attendees: [], location: '',
+            });
+            await sendReply(chatId, `✅ Event created: ${result.summary}\n${result.htmlLink || ''}`);
+            return;
+          }
+          // intent === 'none' → fall through to skill pipeline / chat
+        } catch (intentErr) {
+          // Intent parsing failed — fall through silently
+          log('Intent router error (falling through):', intentErr?.message || intentErr);
+        }
+      }
+
+      // Claude general response fallback — with skill generation
       if (!anthropic) {
         await sendReply(chatId, 'Claude not configured. Send "help" for commands.');
         return;
       }
 
-      // Load conversation history from brain
+      // Try skill pipeline first (classify → match/generate → execute → verify → heal)
+      try {
+        const skillResult = await runSkillPipeline({
+          anthropic,
+          model: config.anthropic.model,
+          brain,
+          threadKey,
+          userMessage: messageBody,
+        });
+
+        if (skillResult) {
+          let reply = skillResult.result;
+          if (skillResult.healed) reply = `🩹 (self-healed)\n\n${reply}`;
+          if (!skillResult.reused) reply = `🧠 Learned: ${skillResult.skill.name}\n\n${reply}`;
+          await sendReply(chatId, reply);
+          return;
+        }
+      } catch (skillErr) {
+        logError('Skill pipeline error (falling back to chat):', skillErr?.message || skillErr);
+      }
+
+      // Fall through to conversational chat
       const historyKey = `${threadKey}:history`;
       const historyState = await brain.loadThread(historyKey);
       const history = Array.isArray(historyState?.messages) ? historyState.messages : [];
 
-      // Add current message
       history.push({ role: 'user', content: messageBody });
-
-      // Keep last 20 messages to stay within token limits
       const trimmed = history.slice(-20);
 
-      // Build repo context
       const indexedRepos = await brain.listRepos();
       const repoContext = indexedRepos.length
         ? `\nUser's repos:\n${indexedRepos.map(r => `- ${r.name} (${r.language || '?'}): ${r.description || 'no description'}`).join('\n')}`
@@ -550,7 +896,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
 
       const systemPrompt = [
         'You are OpenClaw, a helpful assistant via Telegram. Be concise.',
-        'You can create PRs (user sends "repo: owner/repo" + "task: ..."), send emails ("email send ..."), manage calendar ("cal ..."), and check brain memory.',
+        'You can create PRs (user sends "repo: owner/repo" + "task: ..."), send emails ("email send ..."), manage calendar ("cal ..."), manage todos ("todo list/add/done/delete"), and check brain memory.',
         threadState?.lastRepo ? `User last worked on repo: ${threadState.lastRepo}` : '',
         threadState?.lastTask ? `Last task: ${threadState.lastTask}` : '',
         repoContext,
@@ -564,7 +910,6 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
       });
       const text = resp.content?.find((c) => c.type === 'text')?.text?.trim() || '(No response)';
 
-      // Save assistant reply to history
       trimmed.push({ role: 'assistant', content: text });
       await brain.saveThread(historyKey, { messages: trimmed.slice(-20) });
 

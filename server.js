@@ -8,6 +8,7 @@ const { createOctokit } = require('./src/clients/github');
 const { createBrain } = require('./src/brain/brain');
 const { createGmailClient } = require('./src/clients/gmail');
 const { createCalendarClient } = require('./src/clients/calendar');
+const { createTasksClient } = require('./src/clients/tasks');
 const { indexRepos } = require('./src/repo-index');
 
 (async () => {
@@ -36,10 +37,17 @@ const { indexRepos } = require('./src/repo-index');
   // Create Calendar client (reuses Gmail OAuth2 creds)
   const calendar = createCalendarClient(config.gmail);
 
-  const deps = { config, anthropic, openai, octokit, storage, brain, gmail, calendar };
+  // Create Tasks client (reuses Gmail OAuth2 creds)
+  const tasksClient = createTasksClient(config.gmail);
+
+  const deps = { config, anthropic, openai, octokit, storage, brain, gmail, calendar, tasks: tasksClient };
 
   const { startTelegramApp } = require('./src/telegram');
   await startTelegramApp(deps);
+
+  // Start roundup scheduler (background)
+  const { startRoundupScheduler } = require('./src/roundup');
+  startRoundupScheduler(deps);
 
   console.log(`OpenClaw started in ${Date.now() - startTime}ms`);
 

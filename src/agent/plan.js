@@ -128,6 +128,7 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, constrai
     '- You may use any standard command (git, npm, node, find, ls, cat, grep, head, tail, wc, mkdir, cp, mv, sed, awk, etc.).',
     '- Do NOT wrap commands in sh -c or bash -c — run each command directly (e.g. cmd: "find", args: [".", "-maxdepth", "3"]).',
     '- Blocked commands: rm, sudo, curl, wget, ssh, docker, kill, shutdown, systemctl.',
+    '- Do NOT include any git commands in your plan (no git add, commit, push, checkout, merge, pull). Git operations are handled automatically after your plan runs.',
     '- Git identity (user.name, user.email) is ALREADY configured - do NOT add git config commands to your plan.',
     '- For SPEED, prefer minimal manual setup over scaffolding tools:',
     '  * Write package.json with node -e (just react, react-dom, vite as deps)',
