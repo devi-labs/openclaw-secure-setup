@@ -13,6 +13,7 @@ No coding experience needed to get it running. This guide walks you through ever
 ## What Can It Do?
 
 - 🤖 **Write code for you** — Describe a task, get a GitHub pull request
+- 🎓 **Learn to code** — Interactive coding tutor with structured lessons, challenges, and progress tracking right in Telegram
 - 🧠 **Learn new skills** — Ask it anything actionable and it generates, tests, and self-heals code on the fly
 - 💬 **Chat on Telegram** — Just text it like you would a friend
 - 📧 **Manage your email** — Check, search, and send emails (auto-humanized so they don't sound like AI)
