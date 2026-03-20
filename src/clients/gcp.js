@@ -12,7 +12,7 @@ function loadGcpCredentialsMaybe() {
   if (!b64) return;
 
   const json = Buffer.from(b64, 'base64').toString('utf8');
-  const dir = '/tmp/openclaw-secrets';
+  const dir = '/tmp/penny-secrets';
   const fp = path.join(dir, 'gcp-sa.json');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(fp, json, { mode: 0o600 });

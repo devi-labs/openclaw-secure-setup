@@ -89,7 +89,7 @@ async function fetchTweets(bearerToken, handle) {
   for (const host of rsshubHosts) {
     try {
       const resp = await fetch(`${host}/twitter/user/${encodeURIComponent(handle)}`, {
-        headers: { 'User-Agent': 'OpenClaw/1.0' },
+        headers: { 'User-Agent': 'Penny/1.0' },
         signal: AbortSignal.timeout(8000),
       });
       if (!resp.ok) continue;

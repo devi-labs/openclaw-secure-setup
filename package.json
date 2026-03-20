@@ -1,6 +1,6 @@
 {
-  "name": "openclaw",
-  "description": "AI dev agent that writes code and opens PRs from Telegram — powered by Claude. Just text it a task.",
+  "name": "penny",
+  "description": "Penny — Personal AI Assistant & Tutor powered by Claude. Chat via Telegram to manage tasks, learn coding, and more.",
   "version": "1.0.0",
   "keywords": ["ai-agent", "telegram-bot", "claude", "github-automation", "code-generation", "pull-request", "ai-coding-assistant", "developer-tools", "anthropic"],
   "main": "server.js",

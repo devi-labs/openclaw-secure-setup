@@ -56,9 +56,9 @@ const config = {
     projectId: process.env.GCP_PROJECT_ID || '',
     region: process.env.GCP_REGION || '',
     brainBucket: process.env.OPENCLAW_BRAIN_BUCKET || '',
-    brainPrefix: (process.env.OPENCLAW_BRAIN_PREFIX || 'openclaw-brain').replace(/\/+$/, ''),
+    brainPrefix: (process.env.OPENCLAW_BRAIN_PREFIX || 'penny-brain').replace(/\/+$/, ''),
   },
-  workdir: process.env.OPENCLAW_WORKDIR || '/tmp/openclaw-jobs',
+  workdir: process.env.OPENCLAW_WORKDIR || '/tmp/penny-jobs',
   runTests: process.env.OPENCLAW_RUN_TESTS === '1',
   port: process.env.PORT || 8080,
 };

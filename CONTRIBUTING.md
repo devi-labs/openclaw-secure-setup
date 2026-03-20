@@ -1,4 +1,4 @@
-# Contributing to OpenClaw
+# Contributing to Penny
 
 Thanks for your interest in contributing! This doc covers how to get set up and guidelines for contributions.
 
@@ -7,8 +7,8 @@ Thanks for your interest in contributing! This doc covers how to get set up and 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/devi-labs/openclaw-secure-setup.git
-cd openclaw-secure-setup
+git clone https://github.com/devi-labs/penny.git
+cd penny
 npm install
 ```
 
@@ -35,7 +35,7 @@ node server.js
 
 You should see:
 ```
-⚡️ OpenClaw Telegram server running on port 8080 (polling mode)
+⚡️ Penny Telegram server running on port 8080 (polling mode)
 Claude: enabled | GitHub: enabled | Brain: enabled | Allowed users: (any)
 ```
 
