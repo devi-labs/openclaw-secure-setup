@@ -17,7 +17,7 @@ function brainObjectPath(prefix, kind, key) {
 }
 
 // Local filesystem storage (fast reads/writes on VM)
-const LOCAL_BRAIN_DIR = process.env.OPENCLAW_BRAIN_DIR || '/tmp/openclaw-brain';
+const LOCAL_BRAIN_DIR = process.env.OPENCLAW_BRAIN_DIR || '/tmp/penny-brain';
 
 function localPath(objectName) {
   return path.join(LOCAL_BRAIN_DIR, objectName);

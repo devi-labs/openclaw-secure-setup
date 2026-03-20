@@ -83,8 +83,8 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     }
 
     // Configure git identity (required for any commits)
-    const gitEmail = process.env.GIT_AUTHOR_EMAIL || 'openclaw@bot.local';
-    const gitName = process.env.GIT_AUTHOR_NAME || 'OpenClaw Bot';
+    const gitEmail = process.env.GIT_AUTHOR_EMAIL || 'penny@bot.local';
+    const gitName = process.env.GIT_AUTHOR_NAME || 'Penny Bot';
     
     r = await runCmd('git', ['config', 'user.email', gitEmail], { cwd: jobDir, env: process.env });
     if (r.code !== 0) {
@@ -124,7 +124,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     };
 
     // Branch
-    const branch = `openclaw/sandbox-${Date.now().toString(36)}-${jobId}`;
+    const branch = `penny/sandbox-${Date.now().toString(36)}-${jobId}`;
     r = await runCmd('git', ['checkout', '-b', branch], { cwd: jobDir, env: execEnv });
     if (r.code !== 0) {
       await recordThreadError(threadKey, {
@@ -363,7 +363,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
 
     const commitMsg =
       (plan.commitMessage && String(plan.commitMessage).slice(0, 120)) ||
-      `openclaw: ${task}`.slice(0, 120);
+      `penny: ${task}`.slice(0, 120);
 
     await sayProgress?.(`📦 Committing: ${commitMsg}`);
 
@@ -398,7 +398,7 @@ async function sandboxFastPR({ octokit, anthropic, model, config, sayProgress, t
     const pr = await octokit.pulls.create({
       owner,
       repo,
-      title: String(plan.prTitle || `OpenClaw: ${task}`).slice(0, 180),
+      title: String(plan.prTitle || `Penny: ${task}`).slice(0, 180),
       head: branch,
       base: defaultBranch,
       body: prBody,

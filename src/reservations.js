@@ -98,7 +98,7 @@ async function makeReservationCall(blandApiKey, { phone, restaurant, date, time,
   const task =
     `You are calling ${restaurant} to make a dinner reservation. ` +
     `You need a table for ${partySize || 2} on ${date} at ${time}. ` +
-    `The reservation is under the name ${callerName || 'OpenClaw'}. ` +
+    `The reservation is under the name ${callerName || 'Penny'}. ` +
     'Be polite and natural. If the requested time is not available, ask what times are available and accept the closest one. ' +
     'Confirm the final reservation details before hanging up: date, time, party size, and name.';
 

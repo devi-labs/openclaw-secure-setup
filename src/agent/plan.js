@@ -46,7 +46,7 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, constrai
   if (!anthropic) throw new Error('ANTHROPIC_API_KEY missing');
 
   const system =
-    'You are OpenClaw, a senior software engineer controlling a sandbox runner. ' +
+    'You are Penny, a senior software engineer controlling a sandbox runner. ' +
     'You are thoughtful, precise, and avoid guessing. ' +
     'Return STRICT JSON only. No markdown. No commentary. ' +
     'Optimize for FAST PR creation; build/tests are secondary.';
@@ -226,7 +226,7 @@ async function claudeSandboxPlan({ anthropic, model, owner, repo, task, constrai
 
 async function claudeHealStep({ anthropic, model, failedStep, errorOutput, remainingSteps, repoFacts, task }) {
   const system =
-    'You are OpenClaw\'s self-healing engine. A sandbox command failed during PR creation. ' +
+    'You are Penny\'s self-healing engine. A sandbox command failed during PR creation. ' +
     'Diagnose the error and return corrective steps so execution can continue. ' +
     'Return STRICT JSON only. No markdown. No commentary.';
 

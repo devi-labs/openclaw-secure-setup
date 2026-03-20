@@ -12,7 +12,7 @@ const { createTasksClient } = require('./src/clients/tasks');
 const { indexRepos } = require('./src/repo-index');
 
 (async () => {
-  console.log('Starting OpenClaw...');
+  console.log('Starting Penny...');
   const startTime = Date.now();
   
   // Load GCP credentials if needed
@@ -49,7 +49,7 @@ const { indexRepos } = require('./src/repo-index');
   const { startRoundupScheduler } = require('./src/roundup');
   startRoundupScheduler(deps);
 
-  console.log(`OpenClaw started in ${Date.now() - startTime}ms`);
+  console.log(`Penny started in ${Date.now() - startTime}ms`);
 
   // Index repos in background (don't block startup)
   const repoList = (process.env.OPENCLAW_REPOS || '').split(',').map(s => s.trim()).filter(Boolean);

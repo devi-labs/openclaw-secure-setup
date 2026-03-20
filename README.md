@@ -1,10 +1,10 @@
-# OpenClaw
+# Penny
 
-**Text a task. Get a pull request.** OpenClaw is an AI coding agent you control from Telegram — it clones your repo, writes the code, and opens a PR. No IDE needed.
+**Your Personal AI Assistant & Tutor.** Penny is an AI assistant you control from Telegram — she manages your tasks, teaches you to code, handles your email and calendar, and can even write code and open PRs on GitHub.
 
-Powered by Claude. Describe what you want in plain English, and OpenClaw figures out the code changes, makes them, and opens a pull request on GitHub — all from a Telegram chat.
+Powered by Claude. Describe what you want in plain English, and Penny figures it out — all from a Telegram chat.
 
-It also learns new skills on the fly. Ask it to do something it doesn't know how to do, and it'll write the code, test it, fix it if it breaks, and remember it for next time.
+She also learns new skills on the fly. Ask her to do something she doesn't know how to do, and she'll write the code, test it, fix it if it breaks, and remember it for next time.
 
 No coding experience needed to get it running. This guide walks you through every step.
 
@@ -36,14 +36,14 @@ This is the bot you'll chat with on Telegram.
 
 1. Open Telegram and search for **@BotFather** (it has a blue checkmark)
 2. Send it the message: `/newbot`
-3. BotFather will ask you for a **name** (e.g. `My OpenClaw`) and a **username** (e.g. `my_openclaw_bot`)
+3. BotFather will ask you for a **name** (e.g. `My Penny`) and a **username** (e.g. `my_penny_bot`)
 4. It will reply with a **token** that looks like `123456789:ABCdefGHI-jklMNOpqr` — **copy this and save it somewhere safe**
 
 > 💡 This token is secret. Don't share it with anyone.
 
 ### Step 2: Get an Anthropic API Key (required)
 
-This connects OpenClaw to Claude, the AI that does the thinking and coding.
+This connects Penny to Claude, the AI that does the thinking and coding.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com/)
 2. Create an account (or sign in)
@@ -63,7 +63,7 @@ You'll need to use the **Terminal** (Mac/Linux) or **Command Prompt** (Windows) 
 
 ### 1. Install Node.js
 
-Node.js is what runs OpenClaw. Check if you already have it:
+Node.js is what runs Penny. Check if you already have it:
 
 ```bash
 node --version
@@ -75,11 +75,11 @@ If you see a version number (like `v20.x.x`), you're good. If not:
 - **Windows**: Same — download from [nodejs.org](https://nodejs.org/) and run the installer
 - **Linux**: Run `sudo apt install nodejs npm` (Ubuntu/Debian) or `sudo dnf install nodejs` (Fedora)
 
-### 2. Download OpenClaw
+### 2. Download Penny
 
 ```bash
-git clone https://github.com/devi-labs/openclaw-secure-setup.git
-cd openclaw-secure-setup
+git clone https://github.com/devi-labs/penny-secure-setup.git
+cd penny-secure-setup
 npm install
 ```
 
@@ -108,7 +108,7 @@ TELEGRAM_JOIN_CODE=your-secret-code-here
 
 Save the file.
 
-### 4. Start OpenClaw
+### 4. Start Penny
 
 ```bash
 node server.js
@@ -117,8 +117,8 @@ node server.js
 You should see something like:
 
 ```
-Starting OpenClaw...
-⚡️ OpenClaw Telegram server running on port 8080 (polling mode)
+Starting Penny...
+⚡️ Penny Telegram server running on port 8080 (polling mode)
 Claude: enabled | GitHub: enabled | Brain: enabled | Allowed users: (any)
 ```
 
@@ -141,7 +141,7 @@ task: add a health check endpoint to the express server
 
 ### Ask it anything actionable
 
-Just ask — if it requires computation, data processing, or logic, OpenClaw will generate a skill, run it, and remember it:
+Just ask — if it requires computation, data processing, or logic, Penny will generate a skill, run it, and remember it:
 
 ```
 convert 72°F to celsius
@@ -193,7 +193,7 @@ These also work if you prefer them:
 
 ## Self-Healing Skill System
 
-OpenClaw learns new skills on the fly using a self-healing architecture inspired by [Voyager](https://voyager.minedojo.org/) and [Reflexion](https://arxiv.org/abs/2303.11366):
+Penny learns new skills on the fly using a self-healing architecture inspired by [Voyager](https://voyager.minedojo.org/) and [Reflexion](https://arxiv.org/abs/2303.11366):
 
 1. **Classify** — Claude decides if your message needs code or is just conversation
 2. **Match** — Checks the skill library for an existing skill that fits
@@ -209,11 +209,11 @@ Skills are stored in the brain (local filesystem + optional GCS backup) and surv
 
 ## Keeping It Running 24/7
 
-When you close your terminal, OpenClaw stops. If you want it running all the time, you have two options:
+When you close your terminal, Penny stops. If you want it running all the time, you have two options:
 
 ### Option A: Run in the Cloud (Recommended)
 
-This puts OpenClaw on a Google Cloud VM that's always on. You'll need a [Google Cloud account](https://cloud.google.com/) (free tier available).
+This puts Penny on a Google Cloud VM that's always on. You'll need a [Google Cloud account](https://cloud.google.com/) (free tier available).
 
 ```bash
 bash deploy-gce.sh .env
@@ -223,11 +223,11 @@ bash setup.sh .env
 ### Option B: Run Locally with Docker
 
 ```bash
-docker build -t openclaw:local .
-docker run -d --name openclaw --restart=always --env-file .env -p 8080:8080 openclaw:local
+docker build -t penny:local .
+docker run -d --name penny --restart=always --env-file .env -p 8080:8080 penny:local
 ```
 
-To check logs: `docker logs -f openclaw` · To stop: `docker rm -f openclaw`
+To check logs: `docker logs -f penny` · To stop: `docker rm -f penny`
 
 ---
 
@@ -242,7 +242,7 @@ To check logs: `docker logs -f openclaw` · To stop: `docker rm -f openclaw`
 | PR creation fails | Send `brain last error` to see what went wrong |
 | "Google Tasks not configured" | Re-authorize with the Tasks scope (see Google APIs section below) |
 | Bot is slow to respond | Claude is thinking — complex tasks can take 30–60 seconds |
-| Container keeps restarting | Check logs: `docker logs openclaw --tail 50` |
+| Container keeps restarting | Check logs: `docker logs penny --tail 50` |
 
 ---
 
@@ -266,10 +266,10 @@ Everything below is optional. Add what you want, skip what you don't.
 
 ## GitHub Pull Requests
 
-Lets OpenClaw push code and create pull requests on your repos.
+Lets Penny push code and create pull requests on your repos.
 
 1. Go to [github.com/settings/tokens](https://github.com/settings/tokens?type=beta)
-2. Click **Generate new token (classic)** → name it `openclaw` → check **`repo`** scope → generate
+2. Click **Generate new token (classic)** → name it `penny` → check **`repo`** scope → generate
 3. Add to `.env`:
 
 ```
@@ -302,7 +302,7 @@ These three features share the same credentials. Set up once, and you get all th
 3. **Set up OAuth consent screen**:
    - Go to **APIs & Services → OAuth consent screen**
    - Choose **External**
-   - Fill in the app name (e.g. "OpenClaw")
+   - Fill in the app name (e.g. "Penny")
    - Add your email as a **test user**
 
 4. **Create OAuth credentials**:
@@ -330,7 +330,7 @@ GMAIL_REFRESH_TOKEN=your-refresh-token
 GMAIL_USER_EMAIL=you@gmail.com
 ```
 
-Restart OpenClaw. You now have email, calendar, and todos working.
+Restart Penny. You now have email, calendar, and todos working.
 
 > 💡 If you already set up Gmail before and want to add calendar/todos, you just need to re-do step 5 with all three scopes selected, then update your refresh token in `.env`.
 
@@ -338,7 +338,7 @@ Restart OpenClaw. You now have email, calendar, and todos working.
 
 ## Daily & Weekly Roundups
 
-OpenClaw sends you a morning briefing every day at 9am EST — right in your Telegram chat. It automatically delivers to anyone who's messaged the bot.
+Penny sends you a morning briefing every day at 9am EST — right in your Telegram chat. It automatically delivers to anyone who's messaged the bot.
 
 **Daily roundup includes:**
 - 📅 Today's calendar events
@@ -392,7 +392,7 @@ RESERVATION_CALLER_NAME=Your Name
 
 Get a Bland.ai key at [app.bland.ai](https://app.bland.ai).
 
-**Optional:** Add `GOOGLE_PLACES_API_KEY` so OpenClaw can automatically look up restaurant phone numbers. Otherwise, include the number in your message: `call +13125551234 and reserve a table for 2 at Nobu on Saturday at 7pm`
+**Optional:** Add `GOOGLE_PLACES_API_KEY` so Penny can automatically look up restaurant phone numbers. Otherwise, include the number in your message: `call +13125551234 and reserve a table for 2 at Nobu on Saturday at 7pm`
 
 ---
 
@@ -434,7 +434,7 @@ src/
 
 ## Contributing
 
-Want to help improve OpenClaw? See [CONTRIBUTING.md](CONTRIBUTING.md).
+Want to help improve Penny? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -446,4 +446,4 @@ See [CREDITS.md](CREDITS.md).
 
 ---
 
-⚠️ **OpenClaw writes code using AI. Always review pull requests before merging them into your project.**
+⚠️ **Penny can write code using AI. Always review pull requests before merging them into your project.**

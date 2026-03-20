@@ -82,7 +82,9 @@ async function humanize(anthropic, model, text) {
 
 function helpText() {
   return [
-    '👋 Here\'s what I can help you with:',
+    '👋 Hi, I\'m Penny — your Personal AI Assistant & Tutor!',
+    '',
+    'Here\'s what I can help you with:',
     '',
     '📋 To-Do List — "what\'s on my plate?" or "remind me to..."',
     '📅 Calendar — "what\'s on my schedule?" or "any meetings tomorrow?"',
@@ -278,10 +280,10 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
       if (messageBody === joinCode) {
         await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString(), chatId });
         await brain.saveActiveChat(chatId);
-        await sendReply(chatId, '✅ Welcome! Send "help" to see what I can do.');
+        await sendReply(chatId, '✅ You\'re in! I\'m Penny, your Personal AI Assistant & Tutor. Send "help" to see what I can do.');
         return;
       }
-      await sendReply(chatId, 'Please send the joining code to get started.');
+      await sendReply(chatId, 'Welcome to Penny - Personal AI Assistant & Tutor. Give me the secret passcode for the room');
       return;
     }
 
@@ -518,7 +520,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         if (matched.intent === 'repos_list') {
           const repoList = await brain.listRepos();
           if (!repoList.length) {
-            await sendReply(chatId, 'No repos indexed yet. Set OPENCLAW_REPOS or wait for auto-discovery.');
+            await sendReply(chatId, 'No repos indexed yet. Set PENNY_REPOS or wait for auto-discovery.');
             return;
           }
           const list = repoList.map(r => `• ${r.name} (${r.language || '?'})`).join('\n');
@@ -796,7 +798,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
       if (lower === 'repos' || lower === 'list repos') {
         const repoList = await brain.listRepos();
         if (!repoList.length) {
-          await sendReply(chatId, 'No repos indexed yet. Set OPENCLAW_REPOS or wait for auto-discovery.');
+          await sendReply(chatId, 'No repos indexed yet. Set PENNY_REPOS or wait for auto-discovery.');
           return;
         }
         const list = repoList.map(r => `• ${r.name} (${r.language || '?'})`).join('\n');
@@ -947,7 +949,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
           const resp = await anthropic.messages.create({
             model: config.anthropic.model,
             max_tokens: 500,
-            system: 'You are OpenClaw. Be concise.',
+            system: 'You are Penny, a Personal AI Assistant & Tutor. Be concise.',
             messages: [{ role: 'user', content: prompt }],
           });
           const text = resp.content?.find((c) => c.type === 'text')?.text?.trim() || '(No response)';
@@ -1889,7 +1891,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
         : '';
 
       const systemPrompt = [
-        'You are OpenClaw, a helpful assistant via Telegram. Be concise.',
+        'You are Penny, a Personal AI Assistant & Tutor via Telegram. Be concise.',
         'You can create PRs (user sends "repo: owner/repo" + "task: ..."), send emails ("email send ..."), manage calendar ("cal ..."), manage todos ("todo list/add/done/delete"), and check brain memory.',
         threadState?.lastRepo ? `User last worked on repo: ${threadState.lastRepo}` : '',
         threadState?.lastTask ? `Last task: ${threadState.lastTask}` : '',
@@ -1925,7 +1927,7 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
   });
 
   app.listen(config.port, '0.0.0.0', () => {
-    log(`⚡️ OpenClaw Telegram server running on port ${config.port} (polling mode)`);
+    log(`⚡️ Penny Telegram server running on port ${config.port} (polling mode)`);
     log(
       `Claude: ${anthropic ? 'enabled' : 'disabled'} | GitHub: ${octokit ? 'enabled' : 'disabled'} | ` +
       `Brain: ${brain.enabled ? 'enabled' : 'disabled'} | ` +

@@ -59,7 +59,7 @@ async function summarizePullRequest({ octokit, anthropic, model, pr, context = '
     model,
     max_tokens: 950,
     system:
-      "You are OpenClaw, an AI assistant with server-side integrations. " +
+      "You are Penny, a Personal AI Assistant & Tutor with server-side integrations. " +
       "Never reveal secrets. Keep the answer readable.",
     messages: [{ role: 'user', content: prompt }],
   });
