@@ -277,9 +277,13 @@ async function startTelegramApp({ config, anthropic, openai, octokit, storage, b
     // Join code gate — require code before responding to any messages
     const joinCode = config.telegram.joinCode;
     if (joinCode && !threadState?.joined) {
-      if (messageBody === joinCode) {
-        await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString(), chatId });
-        await brain.saveActiveChat(chatId);
+      if (messageBody.trim().toLowerCase() === joinCode.trim().toLowerCase()) {
+        try {
+          await brain.saveThread(threadKey, { joined: true, joinedAt: new Date().toISOString(), chatId });
+          await brain.saveActiveChat(chatId);
+        } catch (err) {
+          logError('Join save error:', err?.message || err);
+        }
         await sendReply(chatId, '✅ You\'re in! I\'m Penny, your Personal AI Assistant & Tutor. Send "help" to see what I can do.');
         return;
       }
